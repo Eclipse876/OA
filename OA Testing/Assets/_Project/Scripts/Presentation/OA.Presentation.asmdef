@@ -1,0 +1,18 @@
+{
+    "name": "OA.Presentation",
+    "rootNamespace": "",
+    "references": [
+        "GUID:828d4c065865e3d4288b57c99fcbf84c",
+        "GUID:5f0b8449318bccb42ab50447de6024b2",
+        "GUID:489ca5dc7543d98448ce32dbd4632775"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

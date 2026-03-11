@@ -1,0 +1,16 @@
+{
+    "name": "OA.Simulation",
+    "rootNamespace": "",
+    "references": [
+        "GUID:828d4c065865e3d4288b57c99fcbf84c"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
