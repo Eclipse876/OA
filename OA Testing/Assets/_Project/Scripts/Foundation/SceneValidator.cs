@@ -1,0 +1,40 @@
+using System.Diagnostics;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
+
+namespace OA.Foundation{
+        
+    public sealed class SceneValidator : MonoBehaviour
+    {
+        [Header("Required Scene Elements")]
+        [SerializeField] private bool requireMainCamera = true;
+        [SerializeField] private bool requireEventSystem = false;
+
+        public bool ValidateScene()
+        {
+            bool isValid = true;
+            string sceneName = SceneManager.GetActiveScene().name;
+
+            if (requireMainCamera && Camera.main == null)
+            {
+                Debug.LogError($"[SceneValidator] Scene '{sceneName}' requires a MainCamera, but none was found.");
+                isValid = false;
+            }
+
+            if (requireEventSystem && FindObjectOfType<EventSystem>() == null)
+            {
+                Debug.LogError($"[SceneValidator] Scene '{sceneName}' requires an EventSystem, but none was found.");
+                isValid = false;
+            }
+
+            if (isValid)
+            {
+                Debug.Log($"[SceneValidator] Scene '{sceneName}' passed validation! Huzza!");
+            }
+            
+            return isValid;
+
+        }
+    }
+}
