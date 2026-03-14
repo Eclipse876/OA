@@ -1,12 +1,8 @@
-using System;
-using System.Diagnostics;
-using System.Threading;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
 namespace OA.Foundation
 {
-    
     public static class StartupChecks
     {
         public static void RunBasicChecks()
@@ -18,9 +14,9 @@ namespace OA.Foundation
 
         private static void CheckTimeScale()
         {
-            if (Time.timescale <= 0f)
+            if (Time.timeScale <= 0f)
             {
-                Debug.LogWarning("[StartupChecks] Be Advised! Time.timeScale is 0. The game is paused at startup.");
+                Debug.LogWarning("[StartupChecks] Time.timeScale is 0. The game is paused at startup.");
             }
         }
 
@@ -34,13 +30,12 @@ namespace OA.Foundation
 
         private static void CheckEventSystem()
         {
-            EventSystem eventSystem = Object.FindObjectOfType<EventSystem>();
+            EventSystem eventSystem = Object.FindFirstObjectByType<EventSystem>();
 
             if (eventSystem == null)
             {
-                Debug.LogWarning("[StartupChecks] Be Advised! No 'EventSystem' found. Safe to ignore if there is no UI yet.");
+                Debug.LogWarning("[StartupChecks] No EventSystem found. Safe to ignore if there is no UI yet.");
             }
-            
         }
     }
 }

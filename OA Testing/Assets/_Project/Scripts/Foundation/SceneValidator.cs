@@ -1,10 +1,9 @@
-using System.Diagnostics;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 
-namespace OA.Foundation{
-        
+namespace OA.Foundation
+{
     public sealed class SceneValidator : MonoBehaviour
     {
         [Header("Required Scene Elements")]
@@ -22,7 +21,7 @@ namespace OA.Foundation{
                 isValid = false;
             }
 
-            if (requireEventSystem && FindObjectOfType<EventSystem>() == null)
+            if (requireEventSystem && FindFirstObjectByType<EventSystem>() == null)
             {
                 Debug.LogError($"[SceneValidator] Scene '{sceneName}' requires an EventSystem, but none was found.");
                 isValid = false;
@@ -30,11 +29,10 @@ namespace OA.Foundation{
 
             if (isValid)
             {
-                Debug.Log($"[SceneValidator] Scene '{sceneName}' passed validation! Huzza!");
+                Debug.Log($"[SceneValidator] Scene '{sceneName}' passed validation.");
             }
-            
-            return isValid;
 
+            return isValid;
         }
     }
 }
