@@ -1,3 +1,4 @@
 ﻿<Solution>
+  <Project Path="OA.Simulation.csproj" />
   <Project Path="OA.Foundation.csproj" />
 </Solution>
