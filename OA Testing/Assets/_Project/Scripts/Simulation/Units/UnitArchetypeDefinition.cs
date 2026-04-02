@@ -2,7 +2,9 @@ using UnityEngine;
 
 namespace OA.Simulation.Units
 {
-    [CreateAssetMenu(fileName = "UnitArchetype", menuName = "OA/Units/Unit Archetype")]
+    [CreateAssetMenu(
+        fileName = "UnitArchetype", 
+        menuName = "OA/Units/Unit Archetype")]
 
     public sealed class UnitArchetypeDefinition : ScriptableObject
     {

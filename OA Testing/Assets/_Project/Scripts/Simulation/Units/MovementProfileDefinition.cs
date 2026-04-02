@@ -1,4 +1,3 @@
-using System.ComponentModel.DataAnnotations;
 using UnityEngine;
 
 namespace OA.Simulation.Units
@@ -6,6 +5,7 @@ namespace OA.Simulation.Units
     [CreateAssetMenu(
         fileName = "MovementProfile",
         menuName = "OA/Units/Movement Profile")]
+        
     public sealed class MovementProfileDefinition : ScriptableObject
     {
         [Header("Speed")]

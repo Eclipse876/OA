@@ -1,4 +1,3 @@
-using System.Drawing;
 using UnityEngine;
 
 namespace OA.Simulation.Units
@@ -6,6 +5,7 @@ namespace OA.Simulation.Units
     [CreateAssetMenu(
         fileName = "PresentationProfile",
         menuName = "OA/Units/Presentation Profile")]
+        
     public sealed class PresentationProfileDefinition : ScriptableObject
     {
         [Header("Sprites")]
