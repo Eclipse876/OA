@@ -1,7 +1,5 @@
 using System;
-using System.Numerics;
-using System.Xml;
-using OA.Foundation;
+using EntityId = OA.Foundation.EntityId;
 using OA.Simulation.Orders;
 using UnityEngine;
 

@@ -1,5 +1,6 @@
 using UnityEngine;
 using System;
+using System.Threading;
 
 namespace OA.Foundation
 {
@@ -7,18 +8,18 @@ namespace OA.Foundation
     [Serializable]
     public readonly struct EntityId : IEquatable<EntityId>
     {
-        private static int s_nextValue = 1;
+        private static long s_nextValue = 0;
 
-        public int Value { get; }
+        public long Value { get; }
 
-        private EntityId(int value)
+        private EntityId(long value)
         {
             Value = value;
         }
 
         public static EntityId Create()
         {
-            return new EntityId(s_nextValue++);
+            return new EntityId(Interlocked.Increment(ref s_nextValue));
         }
 
         public bool Equals(EntityId other)
@@ -33,7 +34,7 @@ namespace OA.Foundation
 
         public override int GetHashCode()
         {
-            return Value;
+            return Value.GetHashCode();
         }
 
         public override string ToString()

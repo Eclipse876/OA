@@ -17,7 +17,7 @@ namespace OA.Simulation.Orders
             _orders.Enqueue(order);
         }
 
-        public bool TryPeak(out Order order)
+        public bool TryPeek(out Order order)
         {
             if (_orders.Count > 0)
             {
