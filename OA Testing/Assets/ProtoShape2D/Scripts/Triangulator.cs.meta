@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: 0d751fda390052f4ca594d8b0f4aca28
+timeCreated: 1490031617
+licenseType: Store
+MonoImporter:
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Scripts/Triangulator.cs
+  uploadId: 660117

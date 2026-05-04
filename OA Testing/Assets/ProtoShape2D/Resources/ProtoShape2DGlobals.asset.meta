@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: eb3b1659ceab2dd42be0cea3fb6aef90
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 11400000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Resources/ProtoShape2DGlobals.asset
+  uploadId: 660117

@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: b368a33b59cd84f7bb38ef94f3deb65a
+TextScriptImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 244921
+  packageName: Terrain Grid System 2
+  packageVersion: 21.0.6
+  assetPath: Assets/TerrainGridSystem/Demos/Demo34_AsyncPathFinding/README.txt
+  uploadId: 879996

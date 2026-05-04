@@ -1,0 +1,10 @@
+﻿fileFormatVersion: 2
+guid: b3cf352d07a74f1eb9875f1fdbf17d2d
+timeCreated: 1714047684
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Editor/Helpers/EditorGeometry.cs
+  uploadId: 660117

@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 409325ab29cad2c4993dd405df467831
+timeCreated: 1496429691
+licenseType: Store
+DefaultImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Demo/Plants.unity
+  uploadId: 660117

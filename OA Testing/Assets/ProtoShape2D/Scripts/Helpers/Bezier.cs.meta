@@ -1,0 +1,10 @@
+﻿fileFormatVersion: 2
+guid: b8f40391840848059789c335f9a5636c
+timeCreated: 1714042039
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Scripts/Helpers/Bezier.cs
+  uploadId: 660117

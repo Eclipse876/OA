@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 92a8a28426742824ca36a108b440b756
+timeCreated: 1490554869
+licenseType: Store
+DefaultImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Demo/Colliders.unity
+  uploadId: 660117

@@ -1,0 +1,156 @@
+#if OA_USE_TGS
+using OA.Simulation.Navigation;
+using TGS;
+using UnityEngine;
+
+namespace OA.Presentation.Debug
+{
+    public sealed class TgsHexGridPresenter : MonoBehaviour, INavigationGridPresenter
+    {
+        [Header("References")]
+        [SerializeField] private TerrainGridSystem tgs;
+        [SerializeField] private HexMapDefinition previewDefinition;
+
+        [Header("Colors")]
+        [SerializeField] private Color deepWaterColor = new Color(0.01f, 0.04f, 0.16f);
+        [SerializeField] private Color roughWaterColor = new Color(0.06f, 0.16f, 0.34f);
+        [SerializeField] private Color obstacleColor = new Color(0.15f, 0.22f, 0.35f);
+        [SerializeField] private Color borderColor = new Color(0.12f, 0.22f, 0.4f, 0.95f);
+
+        private bool configured;
+        private HexMapRuntime lastMap;
+
+        public void BuildOrRefresh(HexMapRuntime map, bool[] blockedMask = null)
+        {
+            if (map == null)
+            {
+                return;
+            }
+
+            if (tgs == null)
+            {
+                UnityEngine.Debug.LogError("[TgsHexGridPresenter] Missing TerrainGridSystem reference.");
+                return;
+            }
+
+            lastMap = map;
+            ConfigureIfNeeded(map);
+            ApplyMapToGrid(map, blockedMask);
+        }
+
+        public bool TryWorldToCell(Vector2 worldPosition, out Vector2Int cell)
+        {
+            if (tgs != null)
+            {
+                Cell clicked = tgs.CellGetAtWorldPosition(new Vector3(worldPosition.x, worldPosition.y, 0f));
+                if (clicked != null)
+                {
+                    cell = new Vector2Int(clicked.column, clicked.row);
+                    return true;
+                }
+            }
+
+            cell = default;
+            return false;
+        }
+
+        [ContextMenu("Refresh Grid Preview From Definition")]
+        private void RefreshGridPreviewFromDefinition()
+        {
+            if (previewDefinition == null)
+            {
+                UnityEngine.Debug.LogWarning("[TgsHexGridPresenter] Assign Preview Definition first.");
+                return;
+            }
+
+            HexMapRuntime map = previewDefinition.CreateRuntimeCopy();
+            BuildOrRefresh(map, null);
+        }
+
+        private void ConfigureIfNeeded(HexMapRuntime map)
+        {
+            if (configured &&
+                tgs.rowCount == map.Height &&
+                tgs.columnCount == map.Width)
+            {
+                return;
+            }
+
+            tgs.cameraMain = Camera.main;
+            tgs.respectOtherUI = true;
+            tgs.highlightMode = HighlightMode.None;
+            tgs.allowHighlightWhileDragging = false;
+            tgs.showTerritories = false;
+            tgs.colorizeTerritories = false;
+            tgs.numTerritories = 1;
+            tgs.showCells = true;
+            tgs.transparentBackground = false;
+            tgs.pointyTopHexagons = false;
+            tgs.evenLayout = false;
+            tgs.gridTopology = GridTopology.Hexagonal;
+            tgs.cellBorderThickness = 1.35f;
+            tgs.cellFillPadding = 0f;
+            tgs.cellBorderColor = borderColor;
+
+            tgs.SetDimensionsAndType(map.Height, map.Width, GridTopology.Hexagonal, false);
+            tgs.Redraw();
+
+            configured = true;
+        }
+
+        private void ApplyMapToGrid(HexMapRuntime map, bool[] blockedMask)
+        {
+            if (tgs.cells == null || tgs.cells.Count == 0)
+            {
+                return;
+            }
+
+            tgs.cellBorderColor = borderColor;
+
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int tgsCellIndex = tgs.CellGetIndex(y, x);
+                    if (tgsCellIndex < 0)
+                    {
+                        continue;
+                    }
+
+                    int mapIndex = map.GetIndex(x, y);
+                    bool blocked = blockedMask != null && mapIndex < blockedMask.Length
+                        ? blockedMask[mapIndex]
+                        : map.IsBlocked(x, y);
+
+                    tgs.CellSetCanCross(tgsCellIndex, !blocked);
+
+                    Color cellColor = blocked
+                        ? obstacleColor
+                        : Color.Lerp(deepWaterColor, roughWaterColor, Mathf.InverseLerp(1f, 3.2f, map.GetMoveCost(x, y)));
+                    tgs.CellSetColor(tgsCellIndex, cellColor);
+
+                    Vector3 world = tgs.CellGetPosition(tgsCellIndex, true, 0f);
+                    map.SetWorldCenter(x, y, new Vector2(world.x, world.y));
+                }
+            }
+
+            map.MarkWorldCentersReady();
+        }
+    }
+}
+#else
+using UnityEngine;
+
+namespace OA.Presentation.Debug
+{
+    public sealed class TgsHexGridPresenter : MonoBehaviour
+    {
+        private void Awake()
+        {
+            UnityEngine.Debug.LogError(
+                "[TgsHexGridPresenter] OA_USE_TGS is not defined. " +
+                "Define OA_USE_TGS in Player Settings to compile TGS integration.");
+        }
+    }
+}
+#endif

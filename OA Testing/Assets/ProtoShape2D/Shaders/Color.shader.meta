@@ -1,0 +1,16 @@
+fileFormatVersion: 2
+guid: 2fa4a8ec840169f4cbc8c83b0cbd275d
+ShaderImporter:
+  externalObjects: {}
+  defaultTextures: []
+  nonModifiableTextures: []
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Shaders/Color.shader
+  uploadId: 660117

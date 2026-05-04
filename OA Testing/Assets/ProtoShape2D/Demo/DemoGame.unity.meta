@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 3729a0cf8dacb64409cbe3dc837ac971
+timeCreated: 1490018466
+licenseType: Store
+DefaultImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Demo/DemoGame.unity
+  uploadId: 660117

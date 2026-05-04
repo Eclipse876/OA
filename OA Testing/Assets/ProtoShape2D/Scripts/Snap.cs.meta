@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: f1f5282591d2bd04c9c124657c790ee7
+timeCreated: 1497522485
+licenseType: Store
+MonoImporter:
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Scripts/Snap.cs
+  uploadId: 660117

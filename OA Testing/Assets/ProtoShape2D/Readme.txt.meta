@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: a5325f5a54be98a40b471ddcae6fa85a
+timeCreated: 1491610673
+licenseType: Store
+TextScriptImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Readme.txt
+  uploadId: 660117

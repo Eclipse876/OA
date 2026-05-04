@@ -1,0 +1,10 @@
+﻿fileFormatVersion: 2
+guid: c5995b40c87e4650af5d811dc1fc00cb
+timeCreated: 1714048313
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Editor/Extensions/EditorPlaneExtension.cs
+  uploadId: 660117

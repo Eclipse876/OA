@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: 0302f876b1e4749e7a7b9ecc8997b4ac
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 244921
+  packageName: Terrain Grid System 2
+  packageVersion: 21.0.6
+  assetPath: Assets/TerrainGridSystem/Demos/Demo34_AsyncPathFinding/Demo34.cs
+  uploadId: 879996

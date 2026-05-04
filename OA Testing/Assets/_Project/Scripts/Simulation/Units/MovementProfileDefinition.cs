@@ -15,6 +15,10 @@ namespace OA.Simulation.Units
 
         [Header("Turning")]
         [Min(0f)] public float turnRateDegreesPerSecond = 180f;
+        [Min(0f)] public float turningRadius = 2.5f;
+
+        [Header("Pathing Safety")]
+        [Min(0f)] public float safetyRadius = 1f;
 
         [Header("Arrival")]
         [Min(0f)] public float stoppingDistance = 0.1f;

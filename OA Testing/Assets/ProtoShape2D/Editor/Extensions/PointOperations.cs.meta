@@ -1,0 +1,10 @@
+﻿fileFormatVersion: 2
+guid: 3bfc2e34b8944c6b9ffafe91862110f1
+timeCreated: 1714065237
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Editor/Extensions/PointOperations.cs
+  uploadId: 660117

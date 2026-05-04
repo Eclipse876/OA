@@ -1,0 +1,10 @@
+﻿fileFormatVersion: 2
+guid: 865a652338cc4cfc9e68256e4733cba6
+timeCreated: 1714066923
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Editor/Helpers/ImageHelper.cs
+  uploadId: 660117

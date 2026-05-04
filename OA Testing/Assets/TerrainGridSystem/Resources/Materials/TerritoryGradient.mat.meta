@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: ae4a9b83623cf410c9e0d2482ede4ddb
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 244921
+  packageName: Terrain Grid System 2
+  packageVersion: 21.0.6
+  assetPath: Assets/TerrainGridSystem/Resources/Materials/TerritoryGradient.mat
+  uploadId: 879996

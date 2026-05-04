@@ -1,7 +1,9 @@
 {
     "name": "OA.Tools.Editor",
     "rootNamespace": "",
-    "references": [],
+    "references": [
+        "OA.Simulation"
+    ],
     "includePlatforms": [
         "Editor"
     ],
@@ -10,9 +12,7 @@
     "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferenced": true,
-    "defineConstraints": [
-        "Editor"
-    ],
+    "defineConstraints": [],
     "versionDefines": [],
     "noEngineReferences": false
 }

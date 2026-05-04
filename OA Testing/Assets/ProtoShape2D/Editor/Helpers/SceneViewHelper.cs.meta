@@ -1,0 +1,10 @@
+﻿fileFormatVersion: 2
+guid: 8743c7846eaa40229eee6d95ebfed7a7
+timeCreated: 1714049352
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Editor/Helpers/SceneViewHelper.cs
+  uploadId: 660117

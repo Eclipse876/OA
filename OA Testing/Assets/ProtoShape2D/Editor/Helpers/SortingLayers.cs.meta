@@ -1,0 +1,10 @@
+﻿fileFormatVersion: 2
+guid: 776f98938cab4478b836e5862259fefc
+timeCreated: 1714047761
+AssetOrigin:
+  serializedVersion: 1
+  productId: 87484
+  packageName: ProtoShape 2D
+  packageVersion: 1.3
+  assetPath: Assets/ProtoShape2D/Editor/Helpers/SortingLayers.cs
+  uploadId: 660117
