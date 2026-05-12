@@ -1,3 +1,7 @@
+// AStarHexPathService.cs:
+// This is the bridge between our homemade hex map and the A* package. It tells
+// the plugin "these hexes are water, these are bad news, please find boat paths
+// and do not ask too many questions."
 using System.Collections.Generic;
 using OA.Simulation.Navigation;
 using Pathfinding;
@@ -5,8 +9,10 @@ using UnityEngine;
 
 namespace OA.Integrations.AStar
 {
+    // Converts HexMapRuntime into an A* GridGraph and answers path requests in cell coords.
     public sealed class AStarHexPathService : MonoBehaviour, INavigationPathService
     {
+        // Graph setup exposed in the inspector so the scene can align to Tilemap/TGS layouts.
         [Header("Graph Settings")]
             [SerializeField] private string graphName = "OA_HexGraph";
             [SerializeField] private bool scanGraphOnRebuild = true;
@@ -20,9 +26,11 @@ namespace OA.Integrations.AStar
             [SerializeField, Min(0.05f)] private float manualHexWidth = 1.1f;
 
 
+        // Cost tuning maps our small movement costs into A*'s integer penalty scale.
         [Header("Cost Tuning")]
             [SerializeField] private float roughPenaltyScale = 12000f;
 
+        // Neighbor buffer is reused while expanding safety zones around obstacles.
         private readonly Vector2Int[] neighborBuffer = new Vector2Int[6];
 
         private GridGraph graph;
@@ -32,6 +40,7 @@ namespace OA.Integrations.AStar
         public bool[] LastAppliedBlockedMask { get; private set; }
 
 
+        // Rebuilds the A* graph from the current map and unit safety radius.
         public void RebuildGraph(HexMapRuntime map, float safetyRadiusWorld)
         {
             if (map == null)
@@ -52,9 +61,11 @@ namespace OA.Integrations.AStar
                 return;
             }
 
+            // Inflate blockers by the unit safety radius before handing them to A*.
             bool[] blockedWithSafety = BuildSafetyMask(map, safetyRadiusWorld);
             LastAppliedBlockedMask = blockedWithSafety;
 
+            // A* wants graph edits inside a work item so its internal state stays consistent.
             AstarPath.active.AddWorkItem(ctx =>
             {
                 for (int y = 0; y < map.Height; y++)
@@ -71,6 +82,7 @@ namespace OA.Integrations.AStar
                         bool walkable = !blockedWithSafety[index];
                         node.Walkable = walkable;
 
+                        // Convert movement cost into an A* penalty. Blocked nodes do not need penalties.
                         float cellCost = map.GetMoveCost(x, y);
                         uint penalty = cellCost <= 1.001f
                             ? 0u
@@ -87,6 +99,7 @@ namespace OA.Integrations.AStar
             AstarPath.active.FlushWorkItems();
         }
 
+        // Requests a path from A* and converts the resulting nodes back into map cells.
         public bool TryFindPath(Vector2Int start, Vector2Int goal, List<Vector2Int> outPath)
         {
             outPath.Clear();
@@ -104,6 +117,7 @@ namespace OA.Integrations.AStar
                 return false;
             }
 
+            // Request uses node world positions, then the result gets converted back to grid coords.
             ABPath request = ABPath.Construct((Vector3)startNode.position, (Vector3)goalNode.position, null);
             request.Claim(this);
             request.traversalConstraint.graphMask = graphMask;
@@ -137,6 +151,7 @@ namespace OA.Integrations.AStar
             }
         }
 
+        // Finds or creates the GridGraph, configures it as hexes, and scans it if requested.
         private void EnsureGraph(HexMapRuntime map)
         {
             AstarData data = AstarPath.active.data;
@@ -171,8 +186,10 @@ namespace OA.Integrations.AStar
             graphMask = GraphMask.FromGraph(graph);
         }
 
+        // Sizes and places the A* graph so it lines up with the visible grid.
         private void ApplyGraphTransform(HexMapRuntime map)
         {
+            // Best case: clone the Tilemap/GridLayout sizing so A* lands on top of the visible grid.
             if (alignGraphToGridLayout && alignmentGridLayout != null)
             {
                 float bootstrapNodeSize = GridGraph.ConvertHexagonSizeToNodeSize(
@@ -185,6 +202,7 @@ namespace OA.Integrations.AStar
                 return;
             }
 
+            // Fallback: use manually configured center/hex width if no layout was assigned.
             if (alignGraphToGridLayout && alignmentGridLayout == null)
             {
                 Debug.LogWarning("[AStarHexPathService] alignGraphCenterToGrid enabled, but alignGraphToGridLayout enabled, but alignmentGridLayout is null. Using manual center/size fallback."); 
@@ -199,6 +217,7 @@ namespace OA.Integrations.AStar
 
         }
 
+        // Builds the final blocked mask, including extra clearance around obstacles.
         private bool[] BuildSafetyMask(HexMapRuntime map, float safetyRadiusWorld)
         {
             int count = map.Width * map.Height;
@@ -212,6 +231,7 @@ namespace OA.Integrations.AStar
                 }
             }
 
+            // World-space safety gets rounded up into whole hex steps.
             int safetySteps = Mathf.CeilToInt(
                 Mathf.Max(0f, safetyRadiusWorld) / Mathf.Max(0.001f, map.CellSize));
 
@@ -220,6 +240,7 @@ namespace OA.Integrations.AStar
                 return blocked;
             }
 
+            // Multi-source BFS starts from every blocked cell and paints nearby cells blocked too.
             bool[] visited = new bool[count];
             Queue<CellDepth> queue = new Queue<CellDepth>(count);
 
@@ -266,11 +287,13 @@ namespace OA.Integrations.AStar
             return blocked;
         }
 
+        // Queue payload for safety-mask BFS: which cell we reached and how far from danger it is.
         private struct CellDepth
         {
             public Vector2Int Cell;
             public int Depth;
 
+            // Small value constructor so queue entries stay readable.
             public CellDepth(Vector2Int cell, int depth)
             {
                 Cell = cell;

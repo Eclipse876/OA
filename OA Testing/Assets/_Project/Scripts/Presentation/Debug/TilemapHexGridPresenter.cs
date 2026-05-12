@@ -1,31 +1,40 @@
+// TilemapHexGridPresenter.cs:
+// Plain Unity Tilemap version of the hex grid. Good for when we want to see
+// the ocean without depending on TGS magic, and for translating clicks back into map cells.
 using OA.Simulation.Navigation;
 using UnityEngine;
 using UnityEngine.Tilemaps;
 
 namespace OA.Presentation.Debug
 {
+    // Presenter that paints a Tilemap from HexMapRuntime and handles world-to-cell lookup.
     public sealed class TilemapHexGridPresenter : MonoBehaviour, INavigationGridPresenter
     {
+        // Scene/asset references needed for drawing and editor preview refreshes.
         [Header("References")]
             [SerializeField] private Tilemap tilemap;
             [SerializeField] private HexMapDefinition previewDefinition;
 
+        // Tiles used for normal water, rough water, and blocked cells.
         [Header("Tiles")]
             [SerializeField] private TileBase deepWaterTile;
             [SerializeField] private TileBase roughWaterTile;
             [SerializeField] private TileBase obstacleTile;
 
+        // Tint colors applied per cell after the tile is placed.
         [Header("Colors")]
             [SerializeField] private Color deepWaterColor = new Color(0.01f, 0.04f, 0.16f);
             [SerializeField] private Color roughWaterColor = new Color(0.06f, 0.16f, 0.34f);
             [SerializeField] private Color obstacleColor = new Color(0.15f, 0.22f, 0.35f);
 
+        // Small behavior knobs for repainting and deciding when water counts as rough.
         [Header("Behavior")]
             [SerializeField] private bool clearBeforePaint = true;
             [SerializeField] private float roughThreshold = 1.01f;
 
         private HexMapRuntime lastMap;
 
+        // Repaints the whole Tilemap and caches each cell center back into the runtime map.
         public void BuildOrRefresh(HexMapRuntime map, bool[] blockedMask = null)
         {
             if (map == null)
@@ -41,11 +50,13 @@ namespace OA.Presentation.Debug
 
             lastMap = map;
 
+            // Optional clear keeps old oversized maps from leaving stray tiles behind.
             if (clearBeforePaint)
             {
                 tilemap.ClearAllTiles();
             }
 
+            // Paint every runtime cell into matching tilemap coordinates.
             for (int y = 0; y < map.Height; y++)
             {
                 for (int x = 0; x < map.Width; x++)
@@ -87,6 +98,7 @@ namespace OA.Presentation.Debug
             tilemap.CompressBounds();
         }
 
+        // Converts a world click into a map cell, with a runtime fallback for awkward tile bounds.
         public bool TryWorldToCell(Vector2 worldPosition, out Vector2Int cell)
         {
             if (tilemap == null)
@@ -102,6 +114,7 @@ namespace OA.Presentation.Debug
                 return true;
             }
 
+            // Tilemap can be picky around hex bounds, so fall back to nearest cached world center.
             if (lastMap != null)
             {
                 return lastMap.TryWorldToCell(worldPosition, out cell);
@@ -112,6 +125,7 @@ namespace OA.Presentation.Debug
         }
 
         [ContextMenu("Refresh Grid Preview From Definition")]
+        // Editor context helper for previewing a HexMapDefinition without entering play mode.
         private void RefreshGridPreviewFromDefinition()
         {
             if (previewDefinition == null)

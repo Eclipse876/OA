@@ -1,10 +1,15 @@
+// HexMapRuntimeTests.cs:
+// Quick checks for the runtime map's hex math and world-center lookup.
+// Small tests, but they catch the kind of mistakes that make clicking feel cursed.
 using NUnit.Framework;
 using OA.Simulation.Navigation;
 using UnityEngine;
 
+// Edit-mode coverage for neighbor math and world-position lookup readiness.
 public sealed class HexMapRuntimeTests
 {
     [Test]
+    // Center cells should have six neighbors, while corners only get the valid in-bounds ones.
     public void NeighborCount_IsCorrect_ForCenterAndCorner()
     {
         HexMapRuntime map = new HexMapRuntime(34, 24, 1.1f);
@@ -18,6 +23,7 @@ public sealed class HexMapRuntimeTests
     }
 
     [Test]
+    // World-to-cell lookup should refuse to run until presenters have cached cell centers.
     public void WorldToCell_RequiresWorldCentersReady()
     {
         HexMapRuntime map = new HexMapRuntime(10, 10, 1f);

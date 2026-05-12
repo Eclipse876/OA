@@ -1,10 +1,16 @@
+// PathRouteSmoother.cs:
+// A* gives us polite cell-by-cell breadcrumbs. This file tries to turn those
+// breadcrumbs into a route the ship can follow without zig-zagging like that web
+// from a spider on caffine.
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace OA.Simulation.Navigation
 {
+    // Static helper that removes unnecessary waypoint corners while respecting blocked cells.
     public static class PathRouteSmoother
     {
+        // Builds a world-space route from a cell path, keeping the final click inside its cell.
         public static void BuildRoute(
             HexMapRuntime map,
             bool[] blockedMask,
@@ -28,10 +34,12 @@ namespace OA.Simulation.Navigation
                 return;
             }
 
+            // Clamp the clicked destination so the route does not aim outside the final hex.
             Vector2Int destinationCell = cellPath[cellPath.Count - 1];
             Vector2 destinationCenter = map.GetWorldCenter(destinationCell.x, destinationCell.y);
             Vector2 finalDestination = ClampPointToCell(destinationWorld, destinationCenter, map.CellSize * 0.4f);
 
+            // Candidate list starts at the ship, walks cell centers, and ends at the clamped click point.
             scratchCandidates.Add(startWorld);
 
             for (int i = 1; i < cellPath.Count; i++)
@@ -44,6 +52,7 @@ namespace OA.Simulation.Navigation
 
             routeOut.Add(startWorld);
 
+            // Greedy shortcut pass: from each anchor, jump to the farthest visible candidate.
             int anchor = 0;
             while (anchor < scratchCandidates.Count - 1)
             {
@@ -71,6 +80,7 @@ namespace OA.Simulation.Navigation
                 anchor = farthestReachable;
             }
 
+            // Emergency fallback so callers always get at least a start/end line.
             if (routeOut.Count < 2)
             {
                 routeOut.Clear();
@@ -79,6 +89,7 @@ namespace OA.Simulation.Navigation
             }
         }
 
+        // Samples along a world segment and makes sure every touched cell is traversable.
         private static bool IsSegmentTraversable(
             HexMapRuntime map,
             bool[] blockedMask,
@@ -114,6 +125,7 @@ namespace OA.Simulation.Navigation
             return true;
         }
 
+        // Checks a cell against either the safety-expanded mask or the raw map walkability.
         private static bool IsTraversable(HexMapRuntime map, bool[] blockedMask, Vector2Int cell)
         {
             if (!map.InBounds(cell.x, cell.y))
@@ -130,6 +142,7 @@ namespace OA.Simulation.Navigation
             return index >= 0 && index < blockedMask.Length && !blockedMask[index];
         }
 
+        // Pulls a point back toward the cell center so final destinations stay inside their hex.
         private static Vector2 ClampPointToCell(Vector2 point, Vector2 cellCenter, float maxOffset)
         {
             Vector2 delta = point - cellCenter;

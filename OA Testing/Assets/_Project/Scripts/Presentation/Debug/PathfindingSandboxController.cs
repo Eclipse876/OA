@@ -1,5 +1,10 @@
+// PathfindingSandboxController.cs:
+// This is the pathfinding playground glue. It builds the map, hooks up the
+// presenter, listens for clicks/rerolls, tells the ship where to go, and keeps
+// the test scene from exploding.
 using System.Collections.Generic;
 using OA.Presentation.Units;
+using OA.Simulation.Movement;
 using OA.Simulation.Navigation;
 using OA.Simulation.Units;
 using UnityEngine;
@@ -10,8 +15,10 @@ using UnityEngine.InputSystem;
 
 namespace OA.Presentation.Debug
 {
+    // Scene controller for the navigation sandbox. Big coordinator energy, but for boats.
     public sealed class PathfindingSandboxController : MonoBehaviour
     {
+        // Scene references wired in from the prefab/scene. Most bugs here are just missing links.
         [Header("Scene References")]
         [SerializeField] private Camera sceneCamera;
         [SerializeField] private HexMapDefinition mapDefinition;
@@ -23,13 +30,17 @@ namespace OA.Presentation.Debug
         [SerializeField] private LineRenderer activeRouteLine;
         [SerializeField] private LineRenderer queuedRouteLine;
 
+        // Default cells and tuning for click routing, rerolls, and debug line drawing.
         [Header("Defaults")]
         [SerializeField] private Vector2Int guaranteedSpawnCell = new Vector2Int(2, 2);
         [SerializeField] private Vector2Int guaranteedGoalCell = new Vector2Int(31, 21);
         [SerializeField] private float routeSampleFactor = 0.2f;
         [SerializeField] private KeyCode rerollKey = KeyCode.R;
+        [SerializeField] private MovementSpeedMode defaultSpeedMode = MovementSpeedMode.Cruise;
+        [SerializeField] private KeyCode fastMoveToggleKey = KeyCode.F;
         [SerializeField] private bool logStatus = true;
 
+        // Reused generator/path buffers so click-to-move does not allocate more than it needs to.
         private readonly System.Random seedRng = new System.Random();
         private readonly HexMapGenerator generator = new HexMapGenerator();
 
@@ -40,6 +51,7 @@ namespace OA.Presentation.Debug
         private readonly Queue<Waypoint> destinationQueue = new Queue<Waypoint>();
         private readonly Vector2Int[] neighborBuffer = new Vector2Int[6];
 
+        // Runtime services resolved from the assigned MonoBehaviours in Awake.
         private INavigationPathService pathService;
         private INavigationGridPresenter gridPresenter;
         private HexMapRuntime map;
@@ -49,6 +61,7 @@ namespace OA.Presentation.Debug
         public HexMapRuntime CurrentMap => map;
         public INavigationPathService CurrentPathService => pathService;
 
+        // Resolves dependencies, builds the first map, rebuilds navigation, and places the ship.
         private void Awake()
         {
             if (!ResolveDependencies())
@@ -62,6 +75,9 @@ namespace OA.Presentation.Debug
                 shipAgent.Initialize(shipArchetype, new Vector2(shipAgent.transform.position.x, shipAgent.transform.position.y));
             }
 
+            shipAgent.SetSpeedMode(defaultSpeedMode);
+
+
             BuildMapFromDefinition();
             RebuildNavigation();
 
@@ -72,20 +88,47 @@ namespace OA.Presentation.Debug
             LogStatus("Pathfinding sandbox initialized.");
         }
 
+        // Per-frame sandbox loop: input, queued routes, and debug route visuals.
         private void Update()
         {
             HandleRerollHotkey();
+            HandleFastMoveToggle();
             HandleClickToMoveInput();
             AdvanceQueuedRoutesIfNeeded();
             UpdateActiveRouteLine();
         }
 
+
+        public void HandleFastMoveToggle()
+        {
+            bool pressed = false;
+
+        #if ENABLE_INPUT_SYSTEM
+            if (Keyboard.current != null)
+            {
+                pressed = Keyboard.current.fKey.wasPressedThisFrame;
+            }
+        #else
+            pressed = Input.GetKeyDown(fastMoveToggleKey);
+        #endif
+        
+            if (!pressed)
+            {
+                return;
+            }
+
+            shipAgent.ToggleSpeedMode();
+            LogStatus($"Speed Mode: {shipAgent.SpeedMode}");
+        }
+
+        // Public helper for benchmark/debug callers to ask about the current safety mask.
         public bool IsCellTraversable(Vector2Int cell)
         {
             return IsTraversableForSafety(cell);
         }
 
         [ContextMenu("Rebuild Navigation From Map Definition")]
+        // Context-menu rebuild using the assigned map definition asset.
         public void RebuildFromMapDefinition()
         {
             if (mapDefinition == null)
@@ -100,6 +143,7 @@ namespace OA.Presentation.Debug
             LogStatus("Rebuilt navigation from map definition.");
         }
 
+        // Rerolls the runtime map when debug settings allow it, then resets the ship and routes.
         public void GenerateRuntimeDebugMap()
         {
             if (debugSettings == null || !debugSettings.enableRuntimeReroll)
@@ -142,6 +186,7 @@ namespace OA.Presentation.Debug
             LogStatus($"Runtime debug map generated. Seed={seed}");
         }
 
+        // Pulls required scene references into interfaces and fails loudly if anything is missing.
         private bool ResolveDependencies()
         {
             pathService = pathServiceBehaviour as INavigationPathService;
@@ -190,8 +235,10 @@ namespace OA.Presentation.Debug
             return true;
         }
 
+        // Toggle between "use baked arrays" and "reroll from asset metadata at startup."
         [SerializeField] private bool generateFromDefinitionMetadata = true;
 
+        // Builds the runtime map either from saved cell arrays or freshly generated metadata.
         private void BuildMapFromDefinition()
         {
             if (!generateFromDefinitionMetadata)
@@ -216,6 +263,7 @@ namespace OA.Presentation.Debug
         }
 
 
+        // Rebuilds pathfinding and redraws the grid with the latest safety-expanded blocked mask.
         private void RebuildNavigation()
         {
             MovementProfileDefinition movement = shipAgent.MovementProfile;
@@ -225,6 +273,7 @@ namespace OA.Presentation.Debug
             gridPresenter.BuildOrRefresh(map, pathService.LastAppliedBlockedMask);
         }
 
+        // Watches the reroll hotkey, supporting both the new Input System and old input path.
         private void HandleRerollHotkey()
         {
             if (debugSettings == null || !debugSettings.enableRuntimeReroll || !debugSettings.enableRerollHotkey)
@@ -247,6 +296,7 @@ namespace OA.Presentation.Debug
             }
         }
 
+        // Handles click-to-move and optional shift-click waypoint queueing.
         private void HandleClickToMoveInput()
         {
             bool wasPressed;
@@ -268,6 +318,7 @@ namespace OA.Presentation.Debug
                 return;
             }
 
+            // Convert mouse screen position to the 2D world plane the grid lives on.
             Vector3 world = sceneCamera.ScreenToWorldPoint(new Vector3(mouseScreen.x, mouseScreen.y, -sceneCamera.transform.position.z));
             Vector2 world2 = new Vector2(world.x, world.y);
 
@@ -281,6 +332,7 @@ namespace OA.Presentation.Debug
             HandleDestinationSelection(targetCell, world2, appendWaypoint);
         }
 
+        // Turns a clicked cell into either an immediate destination or a queued waypoint.
         private void HandleDestinationSelection(Vector2Int targetCell, Vector2 clickedWorld, bool appendWaypoint)
         {
             if (!IsTraversableForSafety(targetCell))
@@ -313,8 +365,10 @@ namespace OA.Presentation.Debug
             }
         }
 
+        // Finds a path to one waypoint, smooths it, and hands the world route to the ship.
         private bool TryRouteToDestination(Waypoint destination, bool silent)
         {
+            // Start from the ship's current cell; if lookup fails, fall back to a safe spawn-ish cell.
             Vector2Int startCell;
             if (!gridPresenter.TryWorldToCell(GetShipPosition(), out startCell) &&
                 !map.TryWorldToCell(GetShipPosition(), out startCell))
@@ -338,6 +392,7 @@ namespace OA.Presentation.Debug
                 return false;
             }
 
+            // Smooth the cell path into world points before handing it to the ship steering code.
             PathRouteSmoother.BuildRoute(
                 map,
                 pathService.LastAppliedBlockedMask,
@@ -365,6 +420,7 @@ namespace OA.Presentation.Debug
             return true;
         }
 
+        // When the current leg finishes, pulls the next queued waypoint and tries to route to it.
         private void AdvanceQueuedRoutesIfNeeded()
         {
             if (shipAgent.HasPath())
@@ -409,6 +465,7 @@ namespace OA.Presentation.Debug
             UpdateQueuedRouteLine();
         }
 
+        // Finds the nearest currently traversable cell to a requested target.
         private Vector2Int FindClosestTraversableCell(Vector2Int desired)
         {
             if (!map.InBounds(desired.x, desired.y))
@@ -421,6 +478,7 @@ namespace OA.Presentation.Debug
                 return desired;
             }
 
+            // BFS outward until we find the nearest cell the current safety mask allows.
             Queue<Vector2Int> queue = new Queue<Vector2Int>(64);
             HashSet<int> visited = new HashSet<int>();
 
@@ -454,6 +512,7 @@ namespace OA.Presentation.Debug
             return new Vector2Int(1, 1);
         }
 
+        // Checks map bounds plus the path service safety mask so UI and routing agree.
         private bool IsTraversableForSafety(Vector2Int cell)
         {
             if (!map.InBounds(cell.x, cell.y))
@@ -471,6 +530,7 @@ namespace OA.Presentation.Debug
             return index >= 0 && index < mask.Length && !mask[index];
         }
 
+        // Draws the remaining active ship route into the active LineRenderer.
         private void UpdateActiveRouteLine()
         {
             if (activeRouteLine == null)
@@ -493,6 +553,7 @@ namespace OA.Presentation.Debug
             }
         }
 
+        // Draws the queued future waypoints as a simple preview line.
         private void UpdateQueuedRouteLine()
         {
             if (queuedRouteLine == null)
@@ -530,6 +591,7 @@ namespace OA.Presentation.Debug
             }
         }
 
+        // Clears both debug line renderers.
         private void ClearLines()
         {
             if (activeRouteLine != null)
@@ -543,12 +605,14 @@ namespace OA.Presentation.Debug
             }
         }
 
+        // Reads the ship transform as a 2D world position.
         private Vector2 GetShipPosition()
         {
             Vector3 p = shipAgent.transform.position;
             return new Vector2(p.x, p.y);
         }
 
+        // Creates a waypoint from a clicked cell while keeping the clicked point inside the hex.
         private Waypoint CreateWaypoint(Vector2Int cell, Vector2 clickedWorld)
         {
             Vector2 center = map.GetWorldCenter(cell.x, cell.y);
@@ -556,6 +620,7 @@ namespace OA.Presentation.Debug
             return new Waypoint(cell, clamped);
         }
 
+        // Pulls a clicked point back toward the cell center so destinations stay inside their hex.
         private Vector2 ClampPointToCell(Vector2 point, Vector2 center)
         {
             Vector2 delta = point - center;
@@ -568,6 +633,7 @@ namespace OA.Presentation.Debug
             return center + delta;
         }
 
+        // Clamps requested cells to the map definition bounds before generation/routing uses them.
         private Vector2Int ClampCellToBounds(Vector2Int cell)
         {
             int x = Mathf.Clamp(cell.x, 0, mapDefinition.Width - 1);
@@ -575,6 +641,7 @@ namespace OA.Presentation.Debug
             return new Vector2Int(x, y);
         }
 
+        // Small logging wrapper so sandbox spam can be turned off from the inspector.
         private void LogStatus(string message)
         {
             if (logStatus)
@@ -583,11 +650,13 @@ namespace OA.Presentation.Debug
             }
         }
 
+        // Tiny value type for queued destinations: the map cell plus the exact world target.
         private struct Waypoint
         {
             public Vector2Int Cell;
             public Vector2 World;
 
+            // Keeps waypoint construction readable at queue call sites.
             public Waypoint(Vector2Int cell, Vector2 world)
             {
                 Cell = cell;

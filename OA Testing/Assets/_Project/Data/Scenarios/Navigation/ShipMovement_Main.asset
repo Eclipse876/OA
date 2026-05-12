@@ -12,10 +12,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 83c3a2876a43f2e459b08be8927c04b4, type: 3}
   m_Name: ShipMovement_Main
   m_EditorClassIdentifier: OA.Simulation::OA.Simulation.Units.MovementProfileDefinition
+  metersPerWorldUnit: 100
+  simulationSecondsPerRealSecond: 60
+  lengthMeters: 150
+  displacementTons: 4000
+  draftMeters: 5
+  cruiseSpeedKnots: 18
+  flankSpeedKnots: 30
+  accelerationKnotsPerSecond: 0.08
+  decelerationKnotsPerSecond: 0.12
+  maxDecelerationKnotsPerSecond: 0.35
+  tacticalDiameterAtCruiseLengths: 4
+  tacticalDiameterAtFlankLengths: 5
+  turnSpeedLossFactor: 0.015
+  safetyRadius: 1
+  stoppingDistance: 0.1
   maxSpeed: 8
   acceleration: 10
   deceleration: 14
   turnRateDegreesPerSecond: 180
   turningRadius: 2.5
-  safetyRadius: 1
-  stoppingDistance: 0.1

@@ -1,16 +1,24 @@
+// HexMapGenerator.cs:
+// This is *supposed* to make the ocean map look intentional. Right now it
+// rolls obstacles/rough water, smooths the spicy bits, and then cheats a little to make sure nothing is trapped.
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace OA.Simulation.Navigation
 {
+    // HexMapGenerator is the procedural map maker.
+    // Seed goes in, navigable-ish hex soup comes out.
     public sealed class HexMapGenerator
     {
+        // Rough water is passable, just expensive enough that paths prefer calmer tiles.
         private const float RoughMoveCost = 3.2f;
 
+        // Reused scratch buffers so reachability checks do not keep allocating tiny garbage.
         private readonly List<Vector2Int> scratchFrontier = new List<Vector2Int>(2048);
         private readonly HashSet<int> scratchVisited = new HashSet<int>();
         private readonly Vector2Int[] neighborBuffer = new Vector2Int[6];
 
+        // Kicks off a deterministic map roll, then clears enough space for spawn/goal.
         public void Generate(
             HexMapRuntime map,
             int seed,
@@ -25,11 +33,13 @@ namespace OA.Simulation.Navigation
                 return;
             }
 
+            // Clamp the designer-facing knobs before they can make an unusable map.
             System.Random random = new System.Random(seed);
             float clampedObstacleChance = Mathf.Clamp(obstacleChance, 0.05f, 0.45f);
             float clampedRoughChance = Mathf.Clamp(roughWaterChance, 0f, 0.85f);
             int clampedSmoothingPasses = Mathf.Clamp(smoothingPasses, 0, 8);
 
+            // First pass: roll blocked cells and rough-water costs from the seed.
             for (int y = 0; y < map.Height; y++)
             {
                 for (int x = 0; x < map.Width; x++)
@@ -46,20 +56,24 @@ namespace OA.Simulation.Navigation
                 }
             }
 
+            // Smoothing turns noisy single-cell static into bigger obstacle blobs.
             for (int i = 0; i < clampedSmoothingPasses; i++)
             {
                 ApplySmoothingPass(map);
             }
 
+            // Always clear breathing room around the guaranteed endpoints, then carve if needed.
             ClearHexRadius(map, guaranteedStart, 2);
             ClearHexRadius(map, guaranteedGoal, 2);
             EnsureGuaranteedPath(map, guaranteedStart, guaranteedGoal);
         }
 
+        // Runs one cellular-automata-ish cleanup pass over the blocked cells.
         private void ApplySmoothingPass(HexMapRuntime map)
         {
             bool[] nextBlocked = new bool[map.Width * map.Height];
 
+            // Decide next blocked states without mutating the map mid-pass.
             for (int y = 0; y < map.Height; y++)
             {
                 for (int x = 0; x < map.Width; x++)
@@ -82,6 +96,7 @@ namespace OA.Simulation.Navigation
                 }
             }
 
+            // Apply the decided blocked state and keep passable cells at a valid movement cost.
             for (int y = 0; y < map.Height; y++)
             {
                 for (int x = 0; x < map.Width; x++)
@@ -102,6 +117,7 @@ namespace OA.Simulation.Navigation
         }
 
 
+        // Counts blocked neighbors around one hex so smoothing knows whether it should flip.
         private int CountBlockedNeighbors(HexMapRuntime map, int centerX, int centerY)
         {
             int count = 0;
@@ -119,6 +135,7 @@ namespace OA.Simulation.Navigation
             return count;
         }
 
+        // Clears a small hex-shaped patch around important cells like spawn and goal.
         private static void ClearHexRadius(HexMapRuntime map, Vector2Int center, int radius)
         {
             for (int y = -radius; y <= radius; y++)
@@ -142,6 +159,7 @@ namespace OA.Simulation.Navigation
             }
         }
 
+        // Makes sure generation did not accidentally split start and goal into separate oceans.
         private void EnsureGuaranteedPath(HexMapRuntime map, Vector2Int start, Vector2Int goal)
         {
             if (!map.InBounds(start.x, start.y) || !map.InBounds(goal.x, goal.y))
@@ -154,6 +172,7 @@ namespace OA.Simulation.Navigation
                 return;
             }
 
+            // If BFS says the map is split, carve a simple hex-line corridor between endpoints.
             Vector2Int? previous = null;
 
             foreach (Vector2Int cell in HexLine(start, goal))
@@ -176,6 +195,7 @@ namespace OA.Simulation.Navigation
             }
         }
 
+        // Breadth-first search used as a quick "can these two cells connect?" check.
         private bool IsReachable(HexMapRuntime map, Vector2Int start, Vector2Int goal)
         {
             scratchFrontier.Clear();
@@ -184,6 +204,7 @@ namespace OA.Simulation.Navigation
             scratchFrontier.Add(start);
             scratchVisited.Add(map.GetIndex(start.x, start.y));
 
+            // Cursor-style BFS over a list keeps the queue simple and allocation-light.
             int cursor = 0;
             while (cursor < scratchFrontier.Count)
             {
@@ -217,6 +238,7 @@ namespace OA.Simulation.Navigation
             return false;
         }
 
+        // Walks a straight-ish line between two hex cells using cube-coordinate interpolation.
         private static IEnumerable<Vector2Int> HexLine(Vector2Int a, Vector2Int b)
         {
             HexMapRuntime.ToCube(a, out int ax, out int ay, out int az);
@@ -236,6 +258,7 @@ namespace OA.Simulation.Navigation
             }
         }
 
+        // Rounds cube coordinates while repairing the axis with the biggest rounding error.
         private static void CubeRound(float x, float y, float z, out int rx, out int ry, out int rz)
         {
             rx = Mathf.RoundToInt(x);

@@ -1,3 +1,6 @@
+// PathfindingBenchmarkRunner.cs:
+// Tiny stopwatch button for pathfinding. Point it at the sandbox and it spams
+// random routes so we can see if the path service is chill or secretly on fire.
 using System.Collections.Generic;
 using System.Diagnostics;
 using OA.Simulation.Navigation;
@@ -5,6 +8,7 @@ using UnityEngine;
 
 namespace OA.Presentation.Debug
 {
+    // Runs repeat path queries against the current sandbox map and logs timing/memory numbers.
     public sealed class PathfindingBenchmarkRunner : MonoBehaviour
     {
         [SerializeField] private PathfindingSandboxController controller;
@@ -12,6 +16,7 @@ namespace OA.Presentation.Debug
         [SerializeField, Min(1)] private int randomSeed = 1337;
 
         [ContextMenu("Run Pathfinding Benchmark")]
+        // Context-menu entry point for hammering the current path service with random routes.
         public void RunBenchmark()
         {
             if (controller == null)
@@ -29,6 +34,7 @@ namespace OA.Presentation.Debug
                 return;
             }
 
+            // Build a pool of legal start/end cells so the benchmark measures pathfinding, not bad input.
             List<Vector2Int> traversableCells = BuildTraversableList(map, controller);
             if(traversableCells.Count < 2)
             {
@@ -40,6 +46,7 @@ namespace OA.Presentation.Debug
 
             List<Vector2Int> pathBuffer = new List<Vector2Int>(1024);
 
+            // Clear old GC noise before measuring so the numbers are less fake.
             System.GC.Collect();
             System.GC.WaitForPendingFinalizers();
             System.GC.Collect();
@@ -49,6 +56,7 @@ namespace OA.Presentation.Debug
             Stopwatch sw = Stopwatch.StartNew();
             int succeeded = 0;
 
+            // Fire random path requests and count how many succeed.
             for (int i = 0; i < queryCount; i++)
             {
                 Vector2Int start = traversableCells[rng.Next(traversableCells.Count)];
@@ -71,6 +79,7 @@ namespace OA.Presentation.Debug
                 $"AvgUs={avgMicroseconds:F2}, MemDeltaBytes={memoryUsed}");
         }
 
+        // Collects every cell the controller says is valid for the current safety mask.
         private static List<Vector2Int> BuildTraversableList(HexMapRuntime map, PathfindingSandboxController controller)
         {
             List<Vector2Int> cells = new List<Vector2Int>(map.Width * map.Height);

@@ -1,10 +1,15 @@
+// HexMapGeneratorDeterminismTests.cs:
+// Sanity checks for the map roller. Basically "same seed, same mess" and
+// "please do not spawn us inside a wall again."
 using NUnit.Framework;
 using OA.Simulation.Navigation;
 using UnityEngine;
 
+// Edit-mode coverage for deterministic generation and guaranteed clear endpoints.
 public sealed class HexMapGeneratorDeterminismTests
 {
     [Test]
+    // Same seed/settings should produce identical blocked/cost arrays.
     public void Generator_IsDeterministic_WithSameSeed()
     {
         HexMapRuntime mapA = new HexMapRuntime(34, 24, 1.1f);
@@ -28,6 +33,7 @@ public sealed class HexMapGeneratorDeterminismTests
     }
 
     [Test]
+    // Start and goal cells should be walkable after generation, even on messy maps.
     public void Generator_ClearsGuaranteedCells()
     {
         HexMapRuntime map = new HexMapRuntime(34, 24, 1.1f);

@@ -1,3 +1,6 @@
+// TgsHexGridPresenter.cs:
+// TGS version of drawing the hex map. If TerrainGridSystem is in the project,
+// this paints the ocean cells and teaches the map where each hex ended up in world space.
 #if OA_USE_TGS
 using OA.Simulation.Navigation;
 using TGS;
@@ -5,6 +8,7 @@ using UnityEngine;
 
 namespace OA.Presentation.Debug
 {
+    // Presenter that uses TerrainGridSystem for visuals and click-to-cell lookup.
     public sealed class TgsHexGridPresenter : MonoBehaviour, INavigationGridPresenter
     {
         [Header("References")]
@@ -20,6 +24,7 @@ namespace OA.Presentation.Debug
         private bool configured;
         private HexMapRuntime lastMap;
 
+        // Configures TGS if needed, then repaints cells from the latest map data.
         public void BuildOrRefresh(HexMapRuntime map, bool[] blockedMask = null)
         {
             if (map == null)
@@ -38,6 +43,7 @@ namespace OA.Presentation.Debug
             ApplyMapToGrid(map, blockedMask);
         }
 
+        // Asks TGS which cell is under a world position.
         public bool TryWorldToCell(Vector2 worldPosition, out Vector2Int cell)
         {
             if (tgs != null)
@@ -55,6 +61,7 @@ namespace OA.Presentation.Debug
         }
 
         [ContextMenu("Refresh Grid Preview From Definition")]
+        // Editor context helper for repainting the preview from a HexMapDefinition asset.
         private void RefreshGridPreviewFromDefinition()
         {
             if (previewDefinition == null)
@@ -67,6 +74,7 @@ namespace OA.Presentation.Debug
             BuildOrRefresh(map, null);
         }
 
+        // Applies one-time TGS grid settings when the map size changes or first initializes.
         private void ConfigureIfNeeded(HexMapRuntime map)
         {
             if (configured &&
@@ -98,6 +106,7 @@ namespace OA.Presentation.Debug
             configured = true;
         }
 
+        // Paints each TGS cell, sets traversability, and caches world centers on the runtime map.
         private void ApplyMapToGrid(HexMapRuntime map, bool[] blockedMask)
         {
             if (tgs.cells == null || tgs.cells.Count == 0)
@@ -117,6 +126,7 @@ namespace OA.Presentation.Debug
                         continue;
                     }
 
+                    // Prefer safety-expanded mask when present so visuals match the actual path graph.
                     int mapIndex = map.GetIndex(x, y);
                     bool blocked = blockedMask != null && mapIndex < blockedMask.Length
                         ? blockedMask[mapIndex]
@@ -143,8 +153,10 @@ using UnityEngine;
 
 namespace OA.Presentation.Debug
 {
+    // Fallback stub that yells during play if the TGS scripting define is missing.
     public sealed class TgsHexGridPresenter : MonoBehaviour
     {
+        // Reports the missing compile define as soon as this placeholder wakes up.
         private void Awake()
         {
             UnityEngine.Debug.LogError(

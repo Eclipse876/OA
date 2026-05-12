@@ -128519,10 +128519,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: OA.Presentation::OA.Presentation.Units.ShipNavigationAgent
   archetype: {fileID: 11400000, guid: 445c580581612484b84c203d65251d9f, type: 2}
   initializeOnStart: 1
+  defaultSpeedMode: 0
   lookAheadDistance: 1.2
-  minForwardThrottleWhenTurning: 0.5
-  fullSpeedHeadingError: 45
-  hardTurnHeadingError: 140
   waypointReachDistance: 0.18
 --- !u!4 &465355987
 Transform:
@@ -128875,6 +128873,8 @@ MonoBehaviour:
   guaranteedGoalCell: {x: 21, y: 31}
   routeSampleFactor: 0.2
   rerollKey: 114
+  defaultSpeedMode: 0
+  fastMoveToggleKey: 102
   logStatus: 1
   generateFromDefinitionMetadata: 1
 --- !u!1 &1481991051
@@ -128955,7 +128955,6 @@ Transform:
   - {fileID: 184174281}
   - {fileID: 465355987}
   - {fileID: 1354675847}
-  - {fileID: 2017616953}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1882459467
@@ -129322,19 +129321,20 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2017616952}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: -1.696, y: -0.2588, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 1984007869}
   - {fileID: 92007588}
-  m_Father: {fileID: 1675190704}
+  m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
   - {fileID: 508521163}
+  - {fileID: 2017616953}
   - {fileID: 1675190704}
   - {fileID: 1481991053}
