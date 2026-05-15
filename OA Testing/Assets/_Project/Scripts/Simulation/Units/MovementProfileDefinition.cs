@@ -20,7 +20,12 @@ namespace OA.Simulation.Units
         [Header("Ship Dimensions")]
         [Min(1f)] public float lengthMeters = 150f;
         [Min(0f)] public float displacementTons = 4000f;
-        [Min(0f)] public float draftMeters = 5f;
+        [Min(0)]  public int   depthClass  = 0;
+        [Min(0)]  public int   depthMeters = 5;
+
+        [Header("Ship Crew Complement")]
+        [Min(0)] public int crewRequired = 50;
+        [Min(0)] public int crewComplement = 100;
 
         [Header("Ship Speeds")]
         [Min(0f)] public float cruiseSpeedKnots = 10f;
