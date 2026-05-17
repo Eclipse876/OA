@@ -15,8 +15,11 @@ MonoBehaviour:
   metersPerWorldUnit: 100
   simulationSecondsPerRealSecond: 60
   lengthMeters: 150
-  displacementTons: 4000
-  draftMeters: 5
+  displacementTons: 40000
+  depthClass: 0
+  depthMeters: 5
+  crewRequired: 50
+  crewComplement: 100
   cruiseSpeedKnots: 18
   flankSpeedKnots: 30
   accelerationKnotsPerSecond: 0.08
