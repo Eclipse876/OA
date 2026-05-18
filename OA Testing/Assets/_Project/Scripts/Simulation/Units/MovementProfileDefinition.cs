@@ -1,6 +1,6 @@
 // MovementProfileDefinition.cs:
 // Movement knobs for units, including the safety bubble pathfinding uses to
-// keep ships from plotting routes that scrape right along blocked hexes.
+// Keep ships from plotting routes that scrape right along blocked hexes.
 using UnityEngine;
 
 namespace OA.Simulation.Units
