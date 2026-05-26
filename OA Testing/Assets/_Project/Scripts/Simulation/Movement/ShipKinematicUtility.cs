@@ -29,14 +29,31 @@ namespace OA.Simulation.Movement
 
             float flank = Mathf.Max(0.001f, profile.flankSpeedKnots);
             float cruise = Mathf.Clamp(profile.cruiseSpeedKnots, 0f, flank);
-            float speed01 = flank > cruise
-                ? Mathf.InverseLerp(cruise, flank, speedKnots)
-                : Mathf.Clamp01(speedKnots / flank);
+            float tacticalDiameterLengths;
 
-            float tacticalDiameterLengths = Mathf.Lerp(
-                handling.TacticalDiameterAtCruiseLengths,
-                handling.TacticalDiameterAtFlankLengths,
-                speed01);
+            if (cruise > 0.001f && speedKnots < cruise)
+            {
+                // Below cruise speed, slower motion permits a tighter turning
+                // footprint. Confined-turn recovery is what asks for the very
+                // low speeds that approach this near-pivot diameter.
+                float maneuverSpeed01 = Mathf.Clamp01(speedKnots / cruise);
+
+                tacticalDiameterLengths = Mathf.Lerp(
+                    handling.MinimumTacticalDiameterLengths,
+                    handling.TacticalDiameterAtCruiseLengths,
+                    maneuverSpeed01);
+            }
+            else
+            {
+                float speed01 = flank > cruise
+                    ? Mathf.InverseLerp(cruise, flank, speedKnots)
+                    : Mathf.Clamp01(speedKnots / flank);
+
+                tacticalDiameterLengths = Mathf.Lerp(
+                    handling.TacticalDiameterAtCruiseLengths,
+                    handling.TacticalDiameterAtFlankLengths,
+                    speed01);
+            }
 
             float radiusMeters = Mathf.Max(1f, profile.lengthMeters) * tacticalDiameterLengths * 0.5f;
             return radiusMeters / Mathf.Max(0.001f, profile.metersPerWorldUnit);

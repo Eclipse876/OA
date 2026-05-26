@@ -1,3 +1,7 @@
+// RouteLineRenderer.cs:
+// Draws the ship's predicted physical path using its achieved speed.
+// Color changes now show acceleration and deceleration directly:
+// red through yellow and green to cyan as the ship approaches flank speed.
 using System.Collections.Generic;
 using OA.Simulation.Movement;
 using UnityEngine;
@@ -6,42 +10,67 @@ namespace OA.Presentation.Debug
 {
     public sealed class RouteLineRenderer : MonoBehaviour
     {
+        private const int MaximumGradientKeys = 8;
+
         [SerializeField] private LineRenderer segmentPrefab;
 
 
-        [SerializeField] private Color cruiseColor = new Color(0.65f, 1f, 1f, 1f);
-        [SerializeField] private Color flankColor = new Color(0f, 0.45f, 0.45f, 1f);
+        [SerializeField] private Color cruiseColor = Color.green;
+        [SerializeField] private Color flankColor = Color.cyan;
         [SerializeField] private Color slowColor = Color.yellow;
         [SerializeField] private Color stopColor = Color.red;
+        [SerializeField, Range(0.05f, 0.95f)] private float slowColorAtCruiseFraction = 0.5f;
 
         [SerializeField, Min(0.001f)] private float width = 0.05f;
 
         private readonly List<LineRenderer> pool = new List<LineRenderer>(256);
 
-        public void Draw(IReadOnlyList<ShipRouteSample> samples)
+        private void Awake()
         {
-            if (segmentPrefab == null) { return; } // Can't draw without a prefab
+            if (segmentPrefab != null)
+            {
+                segmentPrefab.gameObject.SetActive(false);
+            }
+        }
 
-            if (samples == null || samples.Count < 2) { Clear(); return; } // Not enough points to draw a line
+        // Splits prediction into short gradient runs because Unity accepts eight
+        // gradient keys. Each retained physical sample receives its real speed color.
+        public void Draw(
+            IReadOnlyList<ShipRouteSample> samples,
+            float cruiseSpeedKnots,
+            float flankSpeedKnots)
+        {
+            if (segmentPrefab == null)
+            {
+                return; // Can't draw without a prefab.
+            }
+
+            if (samples == null || samples.Count < 2)
+            {
+                Clear();
+                return; // Not enough points to draw a line.
+            }
 
             int usedLines = 0;
             int groupStart = 0;
-            RouteSegmentIntent currentIntent = samples[1].SegmentIntent;
 
-            for (int i = 2; i < samples.Count; i++)
+            while (groupStart < samples.Count - 1)
             {
-                RouteSegmentIntent nextIntent = samples[i].SegmentIntent;
-                if (nextIntent == currentIntent) { continue; }
+                int groupEnd = Mathf.Min(
+                    samples.Count - 1,
+                    groupStart + MaximumGradientKeys - 1);
 
-                DrawSampleGroup(usedLines, samples, groupStart, i - 1, currentIntent);
+                DrawSpeedGroup(
+                    usedLines,
+                    samples,
+                    groupStart,
+                    groupEnd,
+                    cruiseSpeedKnots,
+                    flankSpeedKnots);
+
                 usedLines++;
-
-                groupStart = i - 1;
-                currentIntent = nextIntent;
+                groupStart = groupEnd;
             }
-
-            DrawSampleGroup(usedLines, samples, groupStart, samples.Count - 1, currentIntent);
-            usedLines++;
 
             for (int i = usedLines; i < pool.Count; i++)
             {
@@ -57,26 +86,33 @@ namespace OA.Presentation.Debug
             }
         }
 
-        private void DrawSampleGroup(
+        private void DrawSpeedGroup(
             int poolIndex,
             IReadOnlyList<ShipRouteSample> samples,
             int startIndex,
             int endIndex,
-            RouteSegmentIntent intent)
+            float cruiseSpeedKnots,
+            float flankSpeedKnots)
         {
-            if (endIndex <= startIndex) { return; } // Not enough points to draw a line
+            if (endIndex <= startIndex)
+            {
+                return; // Not enough points to draw a line.
+            }
 
             EnsurePool(poolIndex + 1);
 
             LineRenderer line = pool[poolIndex];
-            Color color = GetColor(intent);
 
             line.gameObject.SetActive(true);
             line.positionCount = endIndex - startIndex + 1;
             line.startWidth = width;
             line.endWidth = width;
-            line.startColor = color;
-            line.endColor = color;
+            line.colorGradient = BuildSpeedGradient(
+                samples,
+                startIndex,
+                endIndex,
+                cruiseSpeedKnots,
+                flankSpeedKnots);
 
             for (int i = startIndex; i <= endIndex; i++)
             {
@@ -85,28 +121,94 @@ namespace OA.Presentation.Debug
             }
         }
 
-        private Color GetColor(RouteSegmentIntent intent)
+        private Gradient BuildSpeedGradient(
+            IReadOnlyList<ShipRouteSample> samples,
+            int startIndex,
+            int endIndex,
+            float cruiseSpeedKnots,
+            float flankSpeedKnots)
         {
-            switch (intent)
+            int count = endIndex - startIndex + 1;
+            float totalDistance = 0f;
+
+            for (int i = startIndex + 1; i <= endIndex; i++)
             {
-                case RouteSegmentIntent.Flank: return flankColor;
-                case RouteSegmentIntent.Cruise: return cruiseColor;
-                case RouteSegmentIntent.Slow: return slowColor;
-                case RouteSegmentIntent.Stop: return stopColor;
-                default: return Color.hotPink;
+                totalDistance += Vector2.Distance(
+                    samples[i - 1].Position,
+                    samples[i].Position);
             }
+
+            totalDistance = Mathf.Max(0.0001f, totalDistance);
+
+            GradientColorKey[] colorKeys = new GradientColorKey[count];
+            GradientAlphaKey[] alphaKeys = new GradientAlphaKey[count];
+            float distance = 0f;
+
+            for (int i = startIndex; i <= endIndex; i++)
+            {
+                if (i > startIndex)
+                {
+                    distance += Vector2.Distance(
+                        samples[i - 1].Position,
+                        samples[i].Position);
+                }
+
+                float time = Mathf.Clamp01(distance / totalDistance);
+                Color color = GetSpeedColor(
+                    samples[i].SpeedKnots,
+                    cruiseSpeedKnots,
+                    flankSpeedKnots);
+
+                int keyIndex = i - startIndex;
+                colorKeys[keyIndex] = new GradientColorKey(color, time);
+                alphaKeys[keyIndex] = new GradientAlphaKey(color.a, time);
+            }
+
+            Gradient gradient = new Gradient();
+            gradient.SetKeys(colorKeys, alphaKeys);
+            return gradient;
         }
 
-        private void EnsurePool(int count)
+        private Color GetSpeedColor(
+            float speedKnots,
+            float cruiseSpeedKnots,
+            float flankSpeedKnots)
         {
-            while(pool.Count < count)
+            float cruise = Mathf.Max(0.001f, cruiseSpeedKnots);
+            float flank = Mathf.Max(cruise, flankSpeedKnots);
+            float slowAnchor = cruise * slowColorAtCruiseFraction;
+
+            if (speedKnots <= slowAnchor)
             {
-                LineRenderer segment = Instantiate(segmentPrefab, transform);
-                segmentPrefab.gameObject.SetActive(false);
-                pool.Add(segment);
+                return Color.Lerp(
+                    stopColor,
+                    slowColor,
+                    Mathf.InverseLerp(0f, slowAnchor, speedKnots));
             }
 
-            segmentPrefab.gameObject.SetActive(false);
+            if (speedKnots <= cruise)
+            {
+                return Color.Lerp(
+                    slowColor,
+                    cruiseColor,
+                    Mathf.InverseLerp(slowAnchor, cruise, speedKnots));
+            }
+
+            return Color.Lerp(
+                cruiseColor,
+                flankColor,
+                Mathf.InverseLerp(cruise, flank, speedKnots));
+        }
+
+        // Grows the segment pool only when a route needs another gradient chunk.
+        private void EnsurePool(int count)
+        {
+            while (pool.Count < count)
+            {
+                LineRenderer segment = Instantiate(segmentPrefab, transform);
+                segment.gameObject.SetActive(false);
+                pool.Add(segment);
+            }
         }
     }
 }

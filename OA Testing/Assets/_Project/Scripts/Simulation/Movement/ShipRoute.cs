@@ -1,8 +1,13 @@
+// ShipRoute.cs:
+// Route data has two related but deliberately separate parts:
+// guidance points tell the movement model what to chase, while predicted samples
+// show the physical, inertial track the ship is expected to travel.
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace OA.Simulation.Movement
 {
+    // Planned route intent for one period of travel. Predicted physical speed drives route-line colors.
     public enum RouteSegmentIntent
     {
         Cruise = 0,
@@ -11,43 +16,74 @@ namespace OA.Simulation.Movement
         Stop = 3
     }
 
+    // Reason a candidate route could not be accepted by physical prediction.
+    public enum ShipRouteFailureReason
+    {
+        None = 0,
+        InvalidRequest = 1,
+        NoGuidanceCourse = 2,
+        PredictedTrackBlocked = 3,
+        PredictionBudgetExceeded = 4
+    }
+
+    // A speed-limited guidance point on the geometric route followed by the ship's steering logic.
     public struct ShipRoutePoint
     {
         public Vector2 Position;
-        public float SpeedLimitKnots;
-        
-        public ShipRoutePoint(Vector2 position, float speedLimitKnots = 0f)
-        {
-            Position = position;
-            SpeedLimitKnots = Mathf.Max(0f, speedLimitKnots);
-        }
-    }
-
-    public struct ShipRouteSample
-    {
-        public Vector2 Position;
+        public float DistanceFromStartWorld;
         public float SpeedLimitKnots;
         public RouteSegmentIntent SegmentIntent;
-        
-        public ShipRouteSample(
-            Vector2 position, 
+
+        public ShipRoutePoint(
+            Vector2 position,
+            float distanceFromStartWorld,
             float speedLimitKnots,
             RouteSegmentIntent segmentIntent)
         {
             Position = position;
+            DistanceFromStartWorld = Mathf.Max(0f, distanceFromStartWorld);
             SpeedLimitKnots = Mathf.Max(0f, speedLimitKnots);
             SegmentIntent = segmentIntent;
         }
     }
 
+    // A physical prediction sample. Position and achieved speed make the displayed line honest.
+    public struct ShipRouteSample
+    {
+        public Vector2 Position;
+        public float SpeedKnots;
+        public float SpeedLimitKnots;
+        public RouteSegmentIntent SegmentIntent;
+
+        public ShipRouteSample(
+            Vector2 position,
+            float speedKnots,
+            float speedLimitKnots,
+            RouteSegmentIntent segmentIntent)
+        {
+            Position = position;
+            SpeedKnots = Mathf.Max(0f, speedKnots);
+            SpeedLimitKnots = Mathf.Max(0f, speedLimitKnots);
+            SegmentIntent = segmentIntent;
+        }
+    }
+
+    // Complete planned route: private steering instructions plus public visual prediction.
     public sealed class ShipRoute
     {
-        public readonly List<ShipRoutePoint> ControlPoints = new List<ShipRoutePoint>(128);
-        public readonly List<ShipRouteSample> PredictedSamples = new List<ShipRouteSample>(512);
+        public readonly List<ShipRoutePoint> ControlPoints =
+            new List<ShipRoutePoint>(256);
+
+        public readonly List<ShipRouteSample> PredictedSamples =
+            new List<ShipRouteSample>(1024);
 
         public float TotalDistanceWorld;
         public float EstimatedTimeSeconds;
         public bool IsValid;
+
+        public ShipRouteFailureReason FailureReason;
+        public Vector2 FailurePosition;
+        public float FailureTimeSeconds;
 
         public void Clear()
         {
@@ -56,8 +92,26 @@ namespace OA.Simulation.Movement
             TotalDistanceWorld = 0f;
             EstimatedTimeSeconds = 0f;
             IsValid = false;
+
+            FailureReason = ShipRouteFailureReason.None;
+            FailurePosition = default;
+            FailureTimeSeconds = 0f;
         }
 
+        // Records why a candidate route failed after clearing incomplete samples.
+        public void Reject(
+            ShipRouteFailureReason reason,
+            Vector2 position,
+            float timeSeconds)
+        {
+            Clear();
+
+            FailureReason = reason;
+            FailurePosition = position;
+            FailureTimeSeconds = Mathf.Max(0f, timeSeconds);
+        }
+
+        // Copies a successfully tested candidate into the committed active route.
         public void CopyFrom(ShipRoute other)
         {
             Clear();
@@ -72,6 +126,10 @@ namespace OA.Simulation.Movement
             TotalDistanceWorld = other.TotalDistanceWorld;
             EstimatedTimeSeconds = other.EstimatedTimeSeconds;
             IsValid = other.IsValid;
+
+            FailureReason = other.FailureReason;
+            FailurePosition = other.FailurePosition;
+            FailureTimeSeconds = other.FailureTimeSeconds;
         }
     }
 }

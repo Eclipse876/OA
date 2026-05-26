@@ -30,6 +30,10 @@ namespace OA.Presentation.Debug
         [SerializeField] private RouteLineRenderer activeRouteLine;
         [SerializeField] private LineRenderer queuedRouteLine;
 
+        [Header("Waypoint Display")]
+        [SerializeField] private SpriteRenderer waypointMarkerPrefab;
+        [SerializeField] private Transform waypointMarkerRoot;
+
         // Default cells and tuning for click routing, rerolls, and debug line drawing.
         [Header("Defaults")]
         [SerializeField] private Vector2Int guaranteedSpawnCell = new Vector2Int(2, 2);
@@ -39,6 +43,15 @@ namespace OA.Presentation.Debug
         [SerializeField] private MovementSpeedMode defaultSpeedMode = MovementSpeedMode.Cruise;
         [SerializeField] private KeyCode fastMoveToggleKey = KeyCode.F;
         [SerializeField] private bool logStatus = true;
+
+        [Header("Kinematic Route Validation")]
+        [SerializeField, Min(0)] private int kinematicClearanceAttempts = 3;
+        [SerializeField, Min(0f)] private float kinematicClearanceStepWorld = 0.5f;
+
+        [Header("Confined Turn Recovery")]
+        [SerializeField, Min(0)] private int constrainedTurnAttempts = 3;
+        [SerializeField, Range(0.01f, 0.95f)] private float constrainedTurnSpeedScaleStep = 0.3f;
+        [SerializeField, Range(0.02f, 1f)] private float minimumConstrainedTurnSpeedScale = 0.1f;
 
         // Reused generator/path buffers so click-to-move does not allocate more than it needs to.
         private readonly System.Random seedRng = new System.Random();
@@ -50,7 +63,12 @@ namespace OA.Presentation.Debug
         private readonly List<Vector2> remainingRoutePoints = new List<Vector2>(512);
         private readonly List<Waypoint> routeWaypoints = new List<Waypoint>(32);
         private readonly List<Vector2> fullWorldPath = new List<Vector2>(512);
+        private readonly List<float> fullWorldWaypointDistances = new List<float>(32);
+        private readonly List<float> acceptedWaypointDistances = new List<float>(32);
         private readonly ShipRoute activeRoute = new ShipRoute();
+        private readonly ShipRoute candidateRoute = new ShipRoute();
+        private readonly List<Waypoint> previousRouteWaypoints = new List<Waypoint>(32);
+        private readonly List<SpriteRenderer> waypointMarkerPool = new List<SpriteRenderer>(32);
         private readonly Vector2Int[] neighborBuffer = new Vector2Int[6];
 
         // Runtime services resolved from the assigned MonoBehaviours in Awake.
@@ -59,6 +77,7 @@ namespace OA.Presentation.Debug
         private HexMapRuntime map;
 
         private Waypoint? activeDestination;
+        private NavigationProfile displayedNavigationProfile;
 
         public HexMapRuntime CurrentMap => map;
         public INavigationPathService CurrentPathService => pathService;
@@ -96,6 +115,7 @@ namespace OA.Presentation.Debug
             HandleRerollHotkey();
             HandleFastMoveToggle();
             HandleClickToMoveInput();
+            RetirePassedWaypoints();
             HandleRouteCompletion();
             UpdateActiveRouteLine();
         }
@@ -123,11 +143,18 @@ namespace OA.Presentation.Debug
                 return;
             }
 
+            MovementSpeedMode previousMode = shipAgent.SpeedMode;
             shipAgent.ToggleSpeedMode();
 
             if (routeWaypoints.Count > 0)
             {
-                TryRouteThroughWaypoints(true);
+                if (!TryRouteThroughWaypoints(true))
+                {
+                    shipAgent.SetSpeedMode(previousMode);
+                    TryRouteThroughWaypoints(true);
+                    LogStatus("Requested speed mode cannot execute the active route.");
+                    return;
+                }
             }
 
             LogStatus($"Speed Mode: {shipAgent.SpeedMode}");
@@ -192,9 +219,12 @@ namespace OA.Presentation.Debug
 
             activeDestination = null;
             routeWaypoints.Clear();
+            acceptedWaypointDistances.Clear();
             activeRoute.Clear();
+            candidateRoute.Clear();
             shipAgent.SetPath(System.Array.Empty<Vector2>());
             ClearLines();
+            RefreshWaypointMarkers();
 
             LogStatus($"Runtime debug map generated. Seed={seed}");
         }
@@ -276,25 +306,79 @@ namespace OA.Presentation.Debug
         }
 
 
-        // Rebuilds pathfinding and redraws the grid with the latest safety-expanded blocked mask.
-        private void RebuildNavigation()
+        // Converts the selected ship's public profile into navigation clearance rules.
+        // Extra clearance is used only while looking for a route its turning arc can execute.
+        private NavigationProfile CreateNavigationProfile(float addedClearance = 0f)
         {
             MovementProfileDefinition movement = shipAgent.MovementProfile;
-            float safetyRadius = movement != null ? movement.safetyRadius : 0f;
+            float safetyRadius = movement != null
+                ? movement.safetyRadius + Mathf.Max(0f, addedClearance)
+                : Mathf.Max(0f, addedClearance);
+
             ShipDraftClass draftClass = movement != null
                 ? movement.draftClass
                 : ShipDraftClass.Shallow;
 
-            NavigationProfile profile = new NavigationProfile(safetyRadius, draftClass);
+            return new NavigationProfile(safetyRadius, draftClass);
+        }
 
+        // Rebuilds pathfinding and redraws the grid with the normal ship safety mask.
+        private void RebuildNavigation()
+        {
+            RebuildNavigation(CreateNavigationProfile());
+        }
+
+        // Rebuilds graph topology only when the underlying map has changed.
+        private void RebuildNavigation(NavigationProfile profile)
+        {
             // First paint establishes the exact world-space center of every visible cell.
             gridPresenter.BuildOrRefresh(map, null);
 
             // The A* point graph is built directly on those visible centers.
             pathService.RebuildGraph(map, profile);
 
-            // Second paint displays the ship-specific blocked/safety mask.
+            DisplayAppliedNavigationProfile(profile);
+        }
+
+        // Updates debug shading only when a profile becomes the accepted visible profile.
+        private void DisplayAppliedNavigationProfile(NavigationProfile profile)
+        {
             gridPresenter.BuildOrRefresh(map, pathService.LastAppliedBlockedMask);
+            displayedNavigationProfile = profile;
+        }
+
+        // Two safety radii that expand to the same number of cells produce the same route mask.
+        private bool ProfilesUseSameTraversalMask(
+            NavigationProfile a,
+            NavigationProfile b)
+        {
+            int aSteps = Mathf.CeilToInt(
+                Mathf.Max(0f, a.SafetyRadiusWorld) /
+                Mathf.Max(0.001f, map.CellSize));
+
+            int bSteps = Mathf.CeilToInt(
+                Mathf.Max(0f, b.SafetyRadiusWorld) /
+                Mathf.Max(0.001f, map.CellSize));
+
+            return a.DraftClass == b.DraftClass &&
+                   aSteps == bSteps;
+        }
+
+        // Makes sure temporary clearance used to search for a wider course never
+        // becomes the ship's persistent legal-water or click-selection mask.
+        private NavigationProfile EnsureRequiredNavigationProfileApplied()
+        {
+            NavigationProfile requiredProfile = CreateNavigationProfile();
+
+            if (!ProfilesUseSameTraversalMask(
+                displayedNavigationProfile,
+                requiredProfile))
+            {
+                pathService.ApplyTraversalProfile(map, requiredProfile);
+                DisplayAppliedNavigationProfile(requiredProfile);
+            }
+
+            return requiredProfile;
         }
 
         // Watches the reroll hotkey, supporting both the new Input System and old input path.
@@ -326,16 +410,22 @@ namespace OA.Presentation.Debug
             bool wasPressed;
             Vector2 mouseScreen;
             bool appendWaypoint;
+            bool insertWaypointAtFront;
 
 #if ENABLE_INPUT_SYSTEM
             wasPressed = Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
             mouseScreen = wasPressed ? Mouse.current.position.ReadValue() : default;
             appendWaypoint = Keyboard.current != null &&
                              (Keyboard.current.leftShiftKey.isPressed || Keyboard.current.rightShiftKey.isPressed);
+            insertWaypointAtFront = appendWaypoint &&
+                                    Keyboard.current != null &&
+                                    (Keyboard.current.leftCtrlKey.isPressed || Keyboard.current.rightCtrlKey.isPressed);
 #else
             wasPressed = Input.GetMouseButtonDown(0);
             mouseScreen = wasPressed ? (Vector2)Input.mousePosition : default;
             appendWaypoint = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+            insertWaypointAtFront = appendWaypoint &&
+                                    (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl));
 #endif
             if (!wasPressed)
             {
@@ -353,50 +443,276 @@ namespace OA.Presentation.Debug
                 return;
             }
 
-            HandleDestinationSelection(targetCell, world2, appendWaypoint);
+            HandleDestinationSelection(
+                targetCell,
+                world2,
+                appendWaypoint,
+                insertWaypointAtFront);
         }
 
         // Turns a clicked cell into either an immediate destination or a queued waypoint.
-        private void HandleDestinationSelection(Vector2Int targetCell, Vector2 clickedWorld, bool appendWaypoint)
+        private void HandleDestinationSelection(
+            Vector2Int targetCell,
+            Vector2 clickedWorld,
+            bool appendWaypoint,
+            bool insertWaypointAtFront)
         {
+            EnsureRequiredNavigationProfileApplied();
+
             if (!IsTraversableForSafety(targetCell))
             {
-                LogStatus("Selected cell is blocked for current safety radius.");
+                LogStatus("Selected cell is blocked for the current ship.");
                 return;
             }
 
-            Waypoint destination = CreateWaypoint(targetCell, clickedWorld);
+            previousRouteWaypoints.Clear();
+            previousRouteWaypoints.AddRange(routeWaypoints);
 
             if (!appendWaypoint)
             {
                 routeWaypoints.Clear();
             }
 
-            routeWaypoints.Add(destination);
+            Waypoint waypoint = CreateWaypoint(targetCell, clickedWorld);
 
-            if (!TryRouteThroughWaypoints(false))
+            if (insertWaypointAtFront && routeWaypoints.Count > 0)
             {
-                routeWaypoints.RemoveAt(routeWaypoints.Count - 1);
+                routeWaypoints.Insert(0, waypoint);
+            }
+            else
+            {
+                routeWaypoints.Add(waypoint);
+            }
+
+            if (TryRouteThroughWaypoints(false))
+            {
                 UpdateQueuedRouteLine();
                 return;
             }
-            
+
+            // A failed append/replacement should leave an already valid course in service.
+            routeWaypoints.Clear();
+            routeWaypoints.AddRange(previousRouteWaypoints);
+
+            if (routeWaypoints.Count > 0)
+            {
+                TryRouteThroughWaypoints(true);
+            }
+
             UpdateQueuedRouteLine();
         }
 
-        // Finds a path to one waypoint, smooths it, and hands the world route to the ship.
+        // Plans one continuous route through every requested waypoint.
+        // Intermediate waypoints are pass-through locations; only the final destination stops the ship.
         private bool TryRouteThroughWaypoints(bool silent)
         {
             if (routeWaypoints.Count == 0)
             {
-                shipAgent.SetPath(System.Array.Empty<Vector2>());
                 activeRoute.Clear();
+                candidateRoute.Clear();
                 activeRouteLine?.Clear();
                 return false;
             }
 
-            Vector2 shipPosition = GetShipPosition();
+            NavigationProfile requiredProfile =
+                EnsureRequiredNavigationProfileApplied();
 
+            // Expanded masks below ask A* for progressively wider geometry.
+            // Prediction must still test the ship against its real legal-water mask.
+            bool[] requiredBlockedMask = pathService.LastAppliedBlockedMask;
+            NavigationProfile appliedProfile = requiredProfile;
+
+            ShipRouteFailureReason lastFailureReason =
+                ShipRouteFailureReason.None;
+
+            Vector2 lastFailurePosition = default;
+            float lastFailureTimeSeconds = 0f;
+            bool geometryPathUnavailable = false;
+
+            int clearanceAttempts =
+                Mathf.Max(0, kinematicClearanceAttempts) + 1;
+
+            int maneuverAttempts =
+                Mathf.Max(0, constrainedTurnAttempts) + 1;
+
+            bool stopSearching = false;
+
+            // Try every reasonable normal-speed/wider course before authorizing
+            // a confined maneuver that deliberately slows tight turns.
+            for (int maneuverAttempt = 0;
+                 maneuverAttempt < maneuverAttempts && !stopSearching;
+                 maneuverAttempt++)
+            {
+                float constrainedTurnSpeedScale = maneuverAttempt == 0
+                    ? 1f
+                    : Mathf.Max(
+                        minimumConstrainedTurnSpeedScale,
+                        1f - maneuverAttempt *
+                        Mathf.Max(0.01f, constrainedTurnSpeedScaleStep));
+
+                for (int clearanceAttempt = 0;
+                     clearanceAttempt < clearanceAttempts;
+                     clearanceAttempt++)
+                {
+                    float extraClearance =
+                        clearanceAttempt * Mathf.Max(0f, kinematicClearanceStepWorld);
+
+                    NavigationProfile candidateProfile =
+                        CreateNavigationProfile(extraClearance);
+
+                    // Do not repeat an attempt whose radius rounds to the same expanded
+                    // hex mask as the profile we already tested in this maneuver pass.
+                    if (clearanceAttempt > 0 &&
+                        ProfilesUseSameTraversalMask(candidateProfile, appliedProfile))
+                    {
+                        continue;
+                    }
+
+                    // Clearance retries only change node walkability. The tile-center
+                    // graph and visible debug map do not need rebuilding during testing.
+                    if (!ProfilesUseSameTraversalMask(candidateProfile, appliedProfile))
+                    {
+                        pathService.ApplyTraversalProfile(map, candidateProfile);
+                        appliedProfile = candidateProfile;
+                    }
+
+                    if (!TryBuildFullGeometryRoute(true))
+                    {
+                        geometryPathUnavailable = true;
+                        break;
+                    }
+
+                    KinematicRoutePlanner.BuildRoute(
+                        fullWorldPath,
+                        shipAgent.CurrentMovementState,
+                        shipAgent.MovementProfile,
+                        shipAgent.SpeedMode,
+                        map,
+                        requiredBlockedMask,
+                        Time.fixedDeltaTime,
+                        shipAgent.LookAheadDistance,
+                        shipAgent.WaypointReachDistance,
+                        constrainedTurnSpeedScale,
+                        candidateRoute);
+
+                    if (!candidateRoute.IsValid)
+                    {
+                        lastFailureReason = candidateRoute.FailureReason;
+                        lastFailurePosition = candidateRoute.FailurePosition;
+                        lastFailureTimeSeconds = candidateRoute.FailureTimeSeconds;
+
+                        // A wider path or a progressively slower confined turn may
+                        // repair a track that clipped restricted water. Other
+                        // failures should not be made slower or more circuitous.
+                        if (candidateRoute.FailureReason !=
+                            ShipRouteFailureReason.PredictedTrackBlocked)
+                        {
+                            stopSearching = true;
+                            break;
+                        }
+
+                        continue;
+                    }
+
+                    activeRoute.CopyFrom(candidateRoute);
+                    shipAgent.SetRoute(activeRoute);
+                    activeRouteLine?.Draw(
+                        activeRoute.PredictedSamples,
+                        shipAgent.MovementProfile.cruiseSpeedKnots,
+                        shipAgent.MovementProfile.flankSpeedKnots);
+
+                    activeDestination = routeWaypoints[routeWaypoints.Count - 1];
+                    acceptedWaypointDistances.Clear();
+                    acceptedWaypointDistances.AddRange(fullWorldWaypointDistances);
+                    RefreshWaypointMarkers();
+
+                    // Extra clearance shaped this chosen course, but does not
+                    // redefine where the ship is actually permitted to travel.
+                    if (!ProfilesUseSameTraversalMask(appliedProfile, requiredProfile))
+                    {
+                        pathService.ApplyTraversalProfile(map, requiredProfile);
+                        appliedProfile = requiredProfile;
+                    }
+
+                    if (!silent)
+                    {
+                        LogStatus(
+                            $"Routing through {routeWaypoints.Count} waypoint(s). " +
+                            $"SafetyRadius={requiredProfile.SafetyRadiusWorld:F2}. " +
+                            $"PlanningClearance={extraClearance:F2}. " +
+                            $"TightTurnSpeedScale={constrainedTurnSpeedScale:F2}.");
+                    }
+
+                    return true;
+                }
+            }
+
+            // Candidate testing temporarily changed A* walkability only.
+            // Restore the committed visible profile without repainting the Tilemap.
+            if (!ProfilesUseSameTraversalMask(appliedProfile, requiredProfile))
+            {
+                pathService.ApplyTraversalProfile(map, requiredProfile);
+            }
+
+            if (!silent)
+            {
+                if (lastFailureReason == ShipRouteFailureReason.None &&
+                    geometryPathUnavailable)
+                {
+                    LogStatus(
+                        "No geometric path exists for the selected destination " +
+                        "using the current ship clearance.");
+                }
+                else
+                {
+                    LogStatus(DescribeRouteFailure(
+                        lastFailureReason,
+                        lastFailurePosition,
+                        lastFailureTimeSeconds));
+                }
+            }
+
+            return false;
+        }
+
+        // Turns physical route rejection into useful sandbox feedback.
+        private string DescribeRouteFailure(
+            ShipRouteFailureReason reason,
+            Vector2 position,
+            float timeSeconds)
+        {
+            switch (reason)
+            {
+                case ShipRouteFailureReason.PredictedTrackBlocked:
+                    return
+                        $"Predicted inertial track enters restricted water near " +
+                        $"({position.x:F2}, {position.y:F2}) after " +
+                        $"{timeSeconds:F2} simulated seconds.";
+
+                case ShipRouteFailureReason.PredictionBudgetExceeded:
+                    return
+                        "The predicted ship did not reach a stopped arrival " +
+                        "within the route simulation budget.";
+
+                case ShipRouteFailureReason.NoGuidanceCourse:
+                    return
+                        "Pathfinding found cells, but no usable smoothed " +
+                        "guidance course was produced.";
+
+                case ShipRouteFailureReason.InvalidRequest:
+                    return
+                        "Route prediction received incomplete path or movement data.";
+
+                default:
+                    return
+                        "No executable route found for this ship's handling characteristics.";
+            }
+        }
+
+        // Stitches A* legs into one geometric candidate before the movement model evaluates it.
+        private bool TryBuildFullGeometryRoute(bool silent)
+        {
+            Vector2 shipPosition = GetShipPosition();
             Vector2Int startCell;
 
             if (!gridPresenter.TryWorldToCell(shipPosition, out startCell) &&
@@ -406,11 +722,11 @@ namespace OA.Presentation.Debug
             }
 
             startCell = FindClosestTraversableCell(startCell);
-
             fullWorldPath.Clear();
+            fullWorldWaypointDistances.Clear();
 
-            Vector2Int legStartCell  = startCell;
-            Vector2    legStartWorld = shipPosition;
+            Vector2Int legStartCell = startCell;
+            Vector2 legStartWorld = shipPosition;
 
             for (int i = 0; i < routeWaypoints.Count; i++)
             {
@@ -424,10 +740,7 @@ namespace OA.Presentation.Debug
                     {
                         LogStatus($"No path found to waypoint {i + 1}.");
                     }
-                    
-                    shipAgent.SetPath(System.Array.Empty<Vector2>());
-                    activeRoute.Clear();
-                    activeRouteLine?.Clear();
+
                     return false;
                 }
 
@@ -443,91 +756,31 @@ namespace OA.Presentation.Debug
 
                 if (worldPath.Count < 2)
                 {
-                    shipAgent.SetPath(System.Array.Empty<Vector2>());
-                    activeRoute.Clear();
-                    activeRouteLine?.Clear();
                     return false;
                 }
 
                 AppendWorldLeg(fullWorldPath, worldPath);
+                fullWorldWaypointDistances.Add(
+                    CalculatePolylineDistance(fullWorldPath));
 
-                legStartCell  = legGoalCell;
+                legStartCell = legGoalCell;
                 legStartWorld = fullWorldPath[fullWorldPath.Count - 1];
             }
 
-            KinematicRoutePlanner.BuildRoute(
-                fullWorldPath,
-                shipAgent.MovementProfile,
-                shipAgent.SpeedMode,
-                activeRoute);
-            
-            if (!activeRoute.IsValid)
-            {
-                shipAgent.SetPath(System.Array.Empty<Vector2>());
-                activeRouteLine?.Clear();
-                return false;
-            }
-
-            shipAgent.SetRoute(activeRoute);
-            activeRouteLine?.Draw(activeRoute.PredictedSamples);
-
-            activeDestination = routeWaypoints[routeWaypoints.Count - 1];
-
-            if (!silent)
-            {
-                LogStatus($"Routing through {routeWaypoints.Count} waypoint(s).");
-            }
-            
-            return true;
+            return fullWorldPath.Count >= 2;
         }
 
-        // When the current leg finishes, pulls the next queued waypoint and tries to route to it.
-        
-        /*
-        private void AdvanceQueuedRoutesIfNeeded()
+        private static float CalculatePolylineDistance(List<Vector2> points)
         {
-            if (shipAgent.HasPath())
+            float distance = 0f;
+
+            for (int i = 1; i < points.Count; i++)
             {
-                return;
+                distance += Vector2.Distance(points[i - 1], points[i]);
             }
 
-            if (!activeDestination.HasValue && destinationQueue.Count == 0)
-            {
-                return;
-            }
-
-            activeDestination = null;
-
-            int skipped = 0;
-            while (destinationQueue.Count > 0)
-            {
-                Waypoint next = destinationQueue.Dequeue();
-                if (TryRouteToDestination(next, false))
-                {
-                    if (skipped > 0)
-                    {
-                        LogStatus($"Skipped {skipped} unreachable queued waypoint(s).");
-                    }
-
-                    UpdateQueuedRouteLine();
-                    return;
-                }
-
-                skipped++;
-            }
-
-            if (skipped > 0)
-            {
-                LogStatus("Queue ended because remaining waypoints were unreachable.");
-            }
-            else
-            {
-                LogStatus("Route complete.");
-            }
-
-            UpdateQueuedRouteLine();
+            return distance;
         }
-        */
 
         private static void AppendWorldLeg(List<Vector2> destination, List<Vector2> leg)
         {
@@ -564,10 +817,45 @@ namespace OA.Presentation.Debug
 
             activeDestination = null;
             routeWaypoints.Clear();
+            acceptedWaypointDistances.Clear();
             activeRoute.Clear();
+            candidateRoute.Clear();
+            activeRouteLine?.Clear();
             UpdateQueuedRouteLine();
+            RefreshWaypointMarkers();
 
-            LogStatus("Route complete! :D");
+            LogStatus("Route complete.");
+        }
+
+        // Intermediate waypoint markers are retired only in route order.
+        // Removing reached points also keeps future appended orders from sending
+        // the ship back through waypoints it already completed.
+        private void RetirePassedWaypoints()
+        {
+            if (!shipAgent.HasPath() ||
+                routeWaypoints.Count <= 1 ||
+                acceptedWaypointDistances.Count != routeWaypoints.Count)
+            {
+                return;
+            }
+
+            bool removedAny = false;
+            float reachedProgress =
+                shipAgent.RouteProgressWorld + shipAgent.WaypointReachDistance;
+
+            while (routeWaypoints.Count > 1 &&
+                   acceptedWaypointDistances.Count > 1 &&
+                   reachedProgress >= acceptedWaypointDistances[0])
+            {
+                routeWaypoints.RemoveAt(0);
+                acceptedWaypointDistances.RemoveAt(0);
+                removedAny = true;
+            }
+
+            if (removedAny)
+            {
+                RefreshWaypointMarkers();
+            }
         }
 
         // Finds the nearest currently traversable cell to a requested target.
@@ -649,33 +937,13 @@ namespace OA.Presentation.Debug
             }
         }
 
-        // Draws the queued future waypoints as a simple preview line.
+        // The committed predicted route is the only course line shown.
+        // A raw ship-to-waypoint line would falsely imply the ship travels straight through obstacles.
         private void UpdateQueuedRouteLine()
         {
-            if (queuedRouteLine == null)
-            {
-                return;
-            }
-
-            if (routeWaypoints.Count == 0)
+            if (queuedRouteLine != null)
             {
                 queuedRouteLine.positionCount = 0;
-                return;
-            }
-
-            worldPath.Clear();
-            worldPath.Add(GetShipPosition());
-
-            for (int i = 0; i < routeWaypoints.Count; i++)
-            {
-                worldPath.Add(routeWaypoints[i].World);
-            }
-
-            queuedRouteLine.positionCount = worldPath.Count;
-            for (int i = 0; i < worldPath.Count; i++)
-            {
-                Vector2 p = worldPath[i];
-                queuedRouteLine.SetPosition(i, new Vector3(p.x, p.y, 0f));
             }
         }
 
@@ -690,6 +958,42 @@ namespace OA.Presentation.Debug
             if (queuedRouteLine != null)
             {
                 queuedRouteLine.positionCount = 0;
+            }
+        }
+
+        // Displays markers only for waypoints still present in the active order.
+        private void RefreshWaypointMarkers()
+        {
+            if (waypointMarkerPrefab == null)
+            {
+                return;
+            }
+
+            while (waypointMarkerPool.Count < routeWaypoints.Count)
+            {
+                Transform parent = waypointMarkerRoot != null
+                    ? waypointMarkerRoot
+                    : transform;
+
+                SpriteRenderer marker = Instantiate(waypointMarkerPrefab, parent);
+                marker.gameObject.SetActive(false);
+                waypointMarkerPool.Add(marker);
+            }
+
+            for (int i = 0; i < waypointMarkerPool.Count; i++)
+            {
+                bool active = i < routeWaypoints.Count;
+                SpriteRenderer marker = waypointMarkerPool[i];
+                marker.gameObject.SetActive(active);
+
+                if (active)
+                {
+                    Vector2 position = routeWaypoints[i].World;
+                    marker.transform.position = new Vector3(
+                        position.x,
+                        position.y,
+                        marker.transform.position.z);
+                }
             }
         }
 

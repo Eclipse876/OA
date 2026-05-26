@@ -2,6 +2,7 @@
 // This is the live hex map brain. It knows which cells are blocked, what they
 // cost to cross, where their centers landed in world space, and how to speak
 // hex math so the rest of the code does not have to.
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace OA.Simulation.Navigation
@@ -16,6 +17,12 @@ namespace OA.Simulation.Navigation
         private readonly WaterDepthClass[] depthClass;
         private readonly Vector2[] worldCenters;
 
+        // Spatial lookup for repeated world-to-cell queries during route smoothing and prediction.
+        // The brute-force fallback remains available for unusual off-map queries.
+        private readonly Dictionary<Vector2Int, List<int>> worldCenterBuckets =
+            new Dictionary<Vector2Int, List<int>>();
+
+        private float worldCenterBucketSize;
         private bool hasWorldCenters;
 
         // Read-only map shape. Resize by making a new runtime map.
@@ -182,6 +189,7 @@ namespace OA.Simulation.Navigation
         // Marks world centers usable after the presenter finishes filling them in.
         public void MarkWorldCentersReady()
         {
+            BuildWorldCenterLookup();
             hasWorldCenters = true;
         }
 
@@ -205,16 +213,97 @@ namespace OA.Simulation.Navigation
                 return false;
             }
 
-            // Brute-force nearest-center lookup is fine for debug maps; swap later if maps get huge.
+            if (TryWorldToCellFromBuckets(worldPosition, out cell))
+            {
+                return true;
+            }
+
+            // Queries far outside the map are rare. Preserve the former nearest-cell
+            // behavior as a fallback without charging this cost to every prediction sample.
+            return TryWorldToCellBruteForce(worldPosition, out cell);
+        }
+
+        // Builds a lightweight spatial index after the visible Tilemap centers are cached.
+        private void BuildWorldCenterLookup()
+        {
+            worldCenterBuckets.Clear();
+            worldCenterBucketSize = Mathf.Max(0.05f, CellSize);
+
+            for (int i = 0; i < worldCenters.Length; i++)
+            {
+                Vector2Int bucket = GetWorldCenterBucket(worldCenters[i]);
+
+                if (!worldCenterBuckets.TryGetValue(bucket, out List<int> entries))
+                {
+                    entries = new List<int>(2);
+                    worldCenterBuckets.Add(bucket, entries);
+                }
+
+                entries.Add(i);
+            }
+        }
+
+        // Checks only nearby buckets during normal in-map movement and route prediction.
+        private bool TryWorldToCellFromBuckets(
+            Vector2 worldPosition,
+            out Vector2Int cell)
+        {
+            Vector2Int centerBucket = GetWorldCenterBucket(worldPosition);
+            float bestDistanceSqr = float.PositiveInfinity;
+            int bestIndex = -1;
+
+            // A two-bucket margin is deliberately generous for hex row offsets
+            // and keeps prediction robust near tile edges.
+            for (int y = -2; y <= 2; y++)
+            {
+                for (int x = -2; x <= 2; x++)
+                {
+                    Vector2Int bucket = new Vector2Int(
+                        centerBucket.x + x,
+                        centerBucket.y + y);
+
+                    if (!worldCenterBuckets.TryGetValue(bucket, out List<int> entries))
+                    {
+                        continue;
+                    }
+
+                    for (int i = 0; i < entries.Count; i++)
+                    {
+                        int index = entries[i];
+                        float distanceSqr =
+                            (worldCenters[index] - worldPosition).sqrMagnitude;
+
+                        if (distanceSqr < bestDistanceSqr)
+                        {
+                            bestDistanceSqr = distanceSqr;
+                            bestIndex = index;
+                        }
+                    }
+                }
+            }
+
+            if (bestIndex < 0)
+            {
+                cell = default;
+                return false;
+            }
+
+            cell = new Vector2Int(bestIndex % Width, bestIndex / Width);
+            return true;
+        }
+
+        // Preserves the original nearest-center behavior for unusual distant queries.
+        private bool TryWorldToCellBruteForce(
+            Vector2 worldPosition,
+            out Vector2Int cell)
+        {
             float bestDistanceSqr = float.PositiveInfinity;
             int bestIndex = -1;
 
             for (int i = 0; i < worldCenters.Length; i++)
             {
-                Vector2 center = worldCenters[i];
-                float dx = center.x - worldPosition.x;
-                float dy = center.y - worldPosition.y;
-                float distanceSqr = dx * dx + dy * dy;
+                float distanceSqr =
+                    (worldCenters[i] - worldPosition).sqrMagnitude;
 
                 if (distanceSqr < bestDistanceSqr)
                 {
@@ -231,6 +320,13 @@ namespace OA.Simulation.Navigation
 
             cell = new Vector2Int(bestIndex % Width, bestIndex / Width);
             return true;
+        }
+
+        private Vector2Int GetWorldCenterBucket(Vector2 position)
+        {
+            return new Vector2Int(
+                Mathf.FloorToInt(position.x / worldCenterBucketSize),
+                Mathf.FloorToInt(position.y / worldCenterBucketSize));
         }
 
         // Fills a caller-owned buffer with valid neighboring hex cells.

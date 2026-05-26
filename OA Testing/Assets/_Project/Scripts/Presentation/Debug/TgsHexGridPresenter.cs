@@ -12,16 +12,16 @@ namespace OA.Presentation.Debug
     public sealed class TgsHexGridPresenter : MonoBehaviour, INavigationGridPresenter
     {
         [Header("References")]
-            [SerializeField] private TerrainGridSystem tgs;
-            [SerializeField] private HexMapDefinition previewDefinition;
+        [SerializeField] private TerrainGridSystem tgs;
+        [SerializeField] private HexMapDefinition previewDefinition;
 
         [Header("Colors")]
-            [SerializeField] private Color shallowWaterColor = new Color(0.06f, 0.28f, 0.32f);
-            [SerializeField] private Color deepWaterColor = new Color(0.01f, 0.04f, 0.16f);
-            [SerializeField] private Color roughWaterColor = new Color(0.06f, 0.16f, 0.34f);
-            [SerializeField] private Color obstacleColor = new Color(0.15f, 0.22f, 0.35f);
-            [SerializeField] private Color borderColor = new Color(0.12f, 0.22f, 0.4f, 0.95f);
-            [SerializeField, Range(0f, 1f)] private float restrictedTintStrength = 0.35f;
+        [SerializeField] private Color shallowWaterColor = new Color(0.06f, 0.28f, 0.32f);
+        [SerializeField] private Color deepWaterColor = new Color(0.01f, 0.04f, 0.16f);
+        [SerializeField] private Color roughWaterColor = new Color(0.06f, 0.16f, 0.34f);
+        [SerializeField] private Color obstacleColor = new Color(0.15f, 0.22f, 0.35f);
+        [SerializeField] private Color borderColor = new Color(0.12f, 0.22f, 0.4f, 0.95f);
+        [SerializeField, Range(0f, 1f)] private float restrictedTintStrength = 0.35f;
 
         private bool configured;
         private HexMapRuntime lastMap;
@@ -41,73 +41,8 @@ namespace OA.Presentation.Debug
             }
 
             lastMap = map;
-            
-            // Optional clear keeps old oversized maps from leaving stray tiles behind.
-            if (clearBeforePaint)
-            {
-                tilemap.ClearAllTiles();
-            }
-
-            // Paint every runtime cell into matching tilemap coordinates.
-            for (int y = 0; y < map.Height; y++)
-            {
-                for (int x = 0; x < map.Width; x++)
-                {
-                    int index = map.GetIndex(x, y);
-
-                    bool terrainBlocked = map.IsBlocked(x, y);
-
-                    bool routeBlocked = blockedMask != null && index < blockedMask.Length
-                        ? blockedMask[index]
-                        : terrainBlocked;
-
-                    bool shallow = map.GetDepthClass(x, y) == WaterDepthClass.Shallow;
-                    bool rough = map.GetMoveCost(x, y) > roughThreshold;
-
-                    Vector3Int cell = new Vector3Int(x, y, 0);
-
-                    TileBase chosenTile;
-                    Color chosenColor;
-
-                     if (terrainBlocked)
-                    {
-                        chosenTile = obstacleTile;
-                        chosenColor = obstacleColor;
-                    }
-                    else if (shallow)
-                    {
-                        chosenTile = shallowWaterTile != null ? shallowWaterTile : deepWaterTile;
-                        chosenColor = shallowWaterColor;
-                    }
-                    else if (rough)
-                    {
-                        chosenTile = roughWaterTile != null ? roughWaterTile : deepWaterTile;
-                        chosenColor = roughWaterColor;
-                    }
-                    else
-                    {
-                        chosenTile = deepWaterTile;
-                        chosenColor = deepWaterColor;
-                    }
-                    
-                    if (routeBlocked && !terrainBlocked)
-                    {
-                        chosenColor = Color.Lerp(chosenColor, obstacleColor, restructedTintStrength);
-                    }
-
-                    tilemap.SetTile(cell, chosenTile);
-
-                    tilemap.SetTileFlags(cell, TileFlags.None);
-                    tilemap.SetColor(cell, chosenColor);
-
-                    Vector3 world = tilemap.GetCellCenterWorld(cell);
-                    map.SetWorldCenter(x, y, new Vector2(world.x, world.y));
-
-                }
-            }
-            
-            map.MarkWorldCenterReady();
-            tilemap.CompressBounds();
+            ConfigureIfNeeded(map);
+            ApplyMapToGrid(map, blockedMask);
         }
 
         // Asks TGS which cell is under a world position.
@@ -121,6 +56,13 @@ namespace OA.Presentation.Debug
                     cell = new Vector2Int(clicked.column, clicked.row);
                     return true;
                 }
+            }
+
+            // Should a TGS click land outside its painted grid, use the same nearest-center
+            // fallback as the Tilemap presenter so input and pathfinding agree.
+            if (lastMap != null)
+            {
+                return lastMap.TryWorldToCell(worldPosition, out cell);
             }
 
             cell = default;
@@ -195,12 +137,10 @@ namespace OA.Presentation.Debug
 
                     // Prefer safety-expanded mask when present so visuals match the actual path graph.
                     int mapIndex = map.GetIndex(x, y);
-
-                    path terrainBlocked = map.IsBlocked(x, y);
-
+                    bool terrainBlocked = map.IsBlocked(x, y);
                     bool routeBlocked = blockedMask != null && mapIndex < blockedMask.Length
                         ? blockedMask[mapIndex]
-                        : map.IsBlocked(x, y);
+                        : terrainBlocked;
 
                     tgs.CellSetCanCross(tgsCellIndex, !routeBlocked);
 
@@ -210,7 +150,7 @@ namespace OA.Presentation.Debug
                     {
                         cellColor = obstacleColor;
                     }
-                    else if (shallow)
+                    else if (map.GetDepthClass(x, y) == WaterDepthClass.Shallow)
                     {
                         cellColor = shallowWaterColor;
                     }

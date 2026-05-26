@@ -19,6 +19,9 @@ namespace OA.Simulation.Navigation
         void RebuildGraph(HexMapRuntime map, float safetyRadiusWorld);
         void RebuildGraph(HexMapRuntime map, NavigationProfile profile);
 
+        // Applies a new ship draft/safety mask without reconstructing graph nodes or connections.
+        void ApplyTraversalProfile(HexMapRuntime map, NavigationProfile profile);
+
         // Finds a route between two cells and writes it into the provided output list.
         bool TryFindPath(Vector2Int start, Vector2Int goal, List<Vector2Int> outPath);
     }

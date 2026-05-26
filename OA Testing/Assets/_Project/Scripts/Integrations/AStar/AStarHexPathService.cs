@@ -105,6 +105,38 @@ namespace OA.Integrations.AStar
             }
         }
 
+        // Applies a different ship-specific blocked mask to the existing PointGraph.
+        // Node positions and connections do not change when only draft or safety radius changes.
+        public void ApplyTraversalProfile(
+            HexMapRuntime map,
+            NavigationProfile profile)
+        {
+            if (map == null)
+            {
+                Debug.LogError(
+                    "[AStarHexPathService] Cannot apply traversal profile: map is null.");
+                return;
+            }
+
+            if (!IsReady || map != activeMap)
+            {
+                // A new map needs complete topology construction before masks can be swapped.
+                RebuildGraph(map, profile);
+                return;
+            }
+
+            bool[] blockedWithSafety = BuildTraversalMask(map, profile);
+            LastAppliedBlockedMask = blockedWithSafety;
+
+            AstarPath.active.AddWorkItem(ctx =>
+            {
+                UpdateNodeTraversal(map, blockedWithSafety);
+                ctx.SetGraphDirty(graph);
+            });
+
+            AstarPath.active.FlushWorkItems();
+        }
+
         // Requests a route between two simulation cells and returns simulation cells.
         public bool TryFindPath(
             Vector2Int start,
@@ -190,6 +222,25 @@ namespace OA.Integrations.AStar
         {
             AstarData data = AstarPath.active.data;
 
+            // Earlier sandbox builds stored a GridGraph under the same service-owned
+            // name. Remove only that legacy graph so its diagonal gizmo cannot sit
+            // behind the exact-position PointGraph and confuse alignment testing.
+            NavGraph legacyGraph = data.FindGraph(candidate =>
+                !(candidate is PointGraph) &&
+                candidate.name == graphName);
+
+            if (legacyGraph != null)
+            {
+                data.RemoveGraph(legacyGraph);
+
+                if (logGraphRebuild)
+                {
+                    Debug.Log(
+                        $"[AStarHexPathService] Removed legacy graph '{graphName}' " +
+                        "before building the PointGraph.");
+                }
+            }
+
             graph = data.FindGraph(candidate =>
                 candidate is PointGraph &&
                 candidate.name == graphName) as PointGraph;
@@ -242,6 +293,34 @@ namespace OA.Integrations.AStar
 
                     nodesByCell[index] = node;
                     cellByNode[node] = new Vector2Int(x, y);
+                }
+            }
+        }
+
+        // Updates walkability and penalties without destroying the stable tile-center graph.
+        // This is used during kinematic clearance retries.
+        private void UpdateNodeTraversal(
+            HexMapRuntime map,
+            bool[] blockedMask)
+        {
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int index = map.GetIndex(x, y);
+                    PointNode node = nodesByCell[index];
+
+                    if (node == null)
+                    {
+                        continue;
+                    }
+
+                    bool walkable = !blockedMask[index];
+
+                    node.Walkable = walkable;
+                    node.Penalty = walkable
+                        ? CalculatePenalty(map.GetMoveCost(x, y))
+                        : 0u;
                 }
             }
         }

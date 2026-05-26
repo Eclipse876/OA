@@ -197,7 +197,7 @@ LineRenderer:
   m_LightmapParameters: {fileID: 0}
   m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 495339909
-  m_SortingLayer: 1
+  m_SortingLayer: 0
   m_SortingOrder: 9
   m_MaskInteraction: 0
   m_Positions:
@@ -411,7 +411,7 @@ TilemapRenderer:
   m_LightmapParameters: {fileID: 0}
   m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 495339909
-  m_SortingLayer: 1
+  m_SortingLayer: 0
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_ChunkSize: {x: 32, y: 32, z: 32}
@@ -128573,7 +128573,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b197406c43438c044a58ca1e42ec667c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Gameplay::CameraController
-  speed: 10
+  speed: 20
+  allowMiddleMouseDrag: 1
+  zoomSpeed: 100
+  minimumOrthographicSize: 2
+  maximumOrthographicSize: 100
 --- !u!114 &508521160
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -128872,6 +128876,8 @@ MonoBehaviour:
   gridPresenterBehaviour: {fileID: 184174279}
   activeRouteLine: {fileID: 1984007870}
   queuedRouteLine: {fileID: 92007589}
+  waypointMarkerPrefab: {fileID: 0}
+  waypointMarkerRoot: {fileID: 0}
   guaranteedSpawnCell: {x: 2, y: 2}
   guaranteedGoalCell: {x: 21, y: 31}
   routeSampleFactor: 0.2
@@ -128879,6 +128885,11 @@ MonoBehaviour:
   defaultSpeedMode: 0
   fastMoveToggleKey: 102
   logStatus: 1
+  kinematicClearanceAttempts: 3
+  kinematicClearanceStepWorld: 0.5
+  constrainedTurnAttempts: 3
+  constrainedTurnSpeedScaleStep: 0.3
+  minimumConstrainedTurnSpeedScale: 0.1
   generateFromDefinitionMetadata: 1
 --- !u!1 &1481991051
 GameObject:
@@ -129046,12 +129057,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: OA.Integrations.AStar::OA.Integrations.AStar.AStarHexPathService
   graphName: OA_HexGraph
-  scanGraphOnRebuild: 1
-  alignGraphToGridLayout: 1
-  alignmentGridLayout: {fileID: 1481991052}
-  alignmentTilemap: {fileID: 209736120}
-  manualGraphCenterWorld: {x: 0, y: 0}
-  manualHexWidth: 1.1
+  logGraphRebuild: 1
   roughPenaltyScale: 12000
 --- !u!4 &1882459470
 Transform:
@@ -129146,7 +129152,7 @@ SpriteRenderer:
   m_LightmapParameters: {fileID: 0}
   m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 495339909
-  m_SortingLayer: 1
+  m_SortingLayer: 0
   m_SortingOrder: 8
   m_MaskInteraction: 0
   m_Sprite: {fileID: 67420061286799670, guid: f5bcb2f935eb12a479378747ef1ad601, type: 3}
@@ -129205,10 +129211,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: OA.Presentation::OA.Presentation.Debug.RouteLineRenderer
   segmentPrefab: {fileID: 2008894176}
-  cruiseColor: {r: 0.65, g: 1, b: 1, a: 1}
+  cruiseColor: {r: 0.1333333, g: 0.5450981, b: 0.1333333, a: 1}
   flankColor: {r: 0, g: 0.45, b: 0.45, a: 1}
   slowColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
   stopColor: {r: 1, g: 0, b: 0, a: 1}
+  slowColorAtCruiseFraction: 0.5
   width: 0.05
 --- !u!1 &2008894174
 GameObject:
@@ -129288,7 +129295,7 @@ LineRenderer:
   m_LightmapParameters: {fileID: 0}
   m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 495339909
-  m_SortingLayer: 1
+  m_SortingLayer: 0
   m_SortingOrder: 10
   m_MaskInteraction: 0
   m_Positions:

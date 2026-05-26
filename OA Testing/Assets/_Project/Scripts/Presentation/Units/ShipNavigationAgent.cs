@@ -9,7 +9,8 @@ using UnityEngine;
 
 namespace OA.Presentation.Units
 {
-    // Moves a unit along world-space waypoints using simple forward-only steering.
+    // Moves a unit along speed-limited world-space guidance using the same
+    // inertial rules that the route planner predicts.
     public sealed class ShipNavigationAgent : MonoBehaviour
     {
         [SerializeField] private UnitArchetypeDefinition archetype;
@@ -18,17 +19,18 @@ namespace OA.Presentation.Units
 
         [Header("Speed Mode")]
             [SerializeField] private MovementSpeedMode defaultSpeedMode = MovementSpeedMode.Cruise;
-        
-        // Steering knobs tune how aggressively the ship turns and slows for waypoints. 
-        [Header("Steering (Forward Only)")]
-            [SerializeField] private float lookAheadDistance = 1.2f;
-            [SerializeField] private float waypointReachDistance = 0.18f;
 
-        // Current route state. activeWaypoints is -1 when the ship has nothing useful to do.
-        private readonly List<ShipRoutePoint> pathPoints = new List<ShipRoutePoint>(256);
+        // Steering knobs tune how far along the planned course the ship aims.
+        [Header("Steering (Forward Only)")]
+            [SerializeField, Min(0.01f)] private float lookAheadDistance = 1.2f;
+            [SerializeField, Min(0.001f)] private float waypointReachDistance = 0.18f;
+
+        // Current route state. Progress is measured along the route so a sliding
+        // ship does not turn around and circle a sample it has already passed.
+        private readonly List<ShipRoutePoint> pathPoints = new List<ShipRoutePoint>(512);
         private readonly ShipMovementModel movementModel = new ShipMovementModel();
 
-        private int activeWaypoints = -1;
+        private ShipRouteFollowState routeFollowState;
         private MovementState movementState;
         private MovementSpeedMode speedMode;
         private bool forceStop;
@@ -37,6 +39,10 @@ namespace OA.Presentation.Units
         public UnitRuntime Runtime { get; private set; }
         public bool IsInitialized => Runtime != null;
         public MovementSpeedMode SpeedMode => speedMode;
+        public MovementState CurrentMovementState => movementState;
+        public float RouteProgressWorld => routeFollowState.ProgressWorld;
+        public float LookAheadDistance => lookAheadDistance;
+        public float WaypointReachDistance => waypointReachDistance;
         public MovementProfileDefinition MovementProfile => Runtime != null ? Runtime.Archetype.movementProfile : null;
 
         // Optional self-start for scene-placed ships that already have an archetype assigned.
@@ -64,12 +70,8 @@ namespace OA.Presentation.Units
 
             transform.position = new Vector3(startWorldPosition.x, startWorldPosition.y, transform.position.z);
             transform.rotation = Quaternion.Euler(0f, 0f, movementState.HeadingDegrees);
-            
-            activeWaypoints = -1;
-            forceStop = false;
-            routeChangedThisFrame = false;
-            pathPoints.Clear();
 
+            ClearRouteState();
             SyncRuntimeValues();
         }
 
@@ -79,10 +81,7 @@ namespace OA.Presentation.Units
             transform.position = new Vector3(worldPosition.x, worldPosition.y, transform.position.z);
             movementState = MovementState.Create(worldPosition, transform.eulerAngles.z);
 
-            pathPoints.Clear();
-            activeWaypoints = -1;
-            forceStop = false;
-            routeChangedThisFrame = false;
+            ClearRouteState();
 
             if (Runtime != null)
             {
@@ -97,126 +96,118 @@ namespace OA.Presentation.Units
 
         public void ToggleSpeedMode()
         {
-            speedMode = speedMode == MovementSpeedMode.Cruise 
-                                   ? MovementSpeedMode.Flank 
+            speedMode = speedMode == MovementSpeedMode.Cruise
+                                   ? MovementSpeedMode.Flank
                                    : MovementSpeedMode.Cruise;
         }
 
+        // Explicit stop orders are the one player-driven case allowed to use maximum deceleration.
         public void Stop()
         {
             pathPoints.Clear();
-            activeWaypoints = -1;
+            routeFollowState.Reset();
             forceStop = true;
             routeChangedThisFrame = true;
         }
 
-        // Replaces the current route with caller-provided world-space points.
+        // Compatibility route setter for simple callers that do not provide speed-limit data.
         public void SetPath(IReadOnlyList<Vector2> points)
         {
             pathPoints.Clear();
-
-            if (points != null)
-            {
-                for (int i = 0; i < points.Count; i++)
-                {
-                    pathPoints.Add(new ShipRoutePoint(points[i]));
-                }
-            }
-
-            routeChangedThisFrame = true;
+            routeFollowState.Reset();
             forceStop = false;
+            routeChangedThisFrame = true;
 
-            if (pathPoints.Count == 0)
+            if (points == null || points.Count < 2)
             {
-                activeWaypoints = -1;
                 return;
             }
 
-            activeWaypoints = 0;
+            float distance = 0f;
 
-            AdvanceWaypointsIfReached(movementState.Position);
-
-            if (activeWaypoints >= pathPoints.Count)
+            for (int i = 0; i < points.Count; i++)
             {
-                activeWaypoints = -1;
+                if (i > 0)
+                {
+                    distance += Vector2.Distance(points[i - 1], points[i]);
+                }
+
+                RouteSegmentIntent intent = i == points.Count - 1
+                    ? RouteSegmentIntent.Stop
+                    : RouteSegmentIntent.Cruise;
+
+                pathPoints.Add(new ShipRoutePoint(
+                    points[i],
+                    distance,
+                    0f,
+                    intent));
             }
         }
 
-        // True when there is still an active waypoint to chase.
-        public bool HasPath()
+        // Accepts the speed-limited guidance course that produced the visible predicted line.
+        public void SetRoute(ShipRoute route)
         {
-            return activeWaypoints >= 0 && activeWaypoints < pathPoints.Count;
+            pathPoints.Clear();
+            routeFollowState.Reset();
+            forceStop = false;
+            routeChangedThisFrame = true;
+
+            if (route == null || !route.IsValid || route.ControlPoints.Count < 2)
+            {
+                return;
+            }
+
+            pathPoints.AddRange(route.ControlPoints);
         }
 
-        // Writes the current position plus remaining waypoints for debug line rendering.
+        // True while the ship is still executing a route rather than sitting at final arrival.
+        public bool HasPath()
+        {
+            return pathPoints.Count >= 2 && !routeFollowState.IsComplete;
+        }
+
+        // Writes remaining guidance points for diagnostic callers; the displayed line uses prediction samples.
         public void GetRemainingPath(List<Vector2> output)
         {
             output.Clear();
+
             if (!HasPath())
             {
                 return;
             }
 
             output.Add(movementState.Position);
-            for (int i = activeWaypoints; i < pathPoints.Count; i++)
-            {
-                output.Add(pathPoints[i].Position);
-            }
-        }
 
-        public void SetRoute(ShipRoute route)
-        {
-            pathPoints.Clear();
-
-            if (route != null && route.IsValid)
+            for (int i = 0; i < pathPoints.Count; i++)
             {
-                for (int i = 0; i < route.ControlPoints.Count; i++)
+                if (pathPoints[i].DistanceFromStartWorld >= routeFollowState.ProgressWorld)
                 {
-                    pathPoints.Add(route.ControlPoints[i]);
+                    output.Add(pathPoints[i].Position);
                 }
             }
-
-            routeChangedThisFrame = true;
-            forceStop = false;
-
-            if (pathPoints.Count == 0)
-            {
-                activeWaypoints = -1;
-                return;
-            }
-
-            activeWaypoints = 0;
-            AdvanceWaypointsIfReached(movementState.Position);
-
-            if (activeWaypoints >= pathPoints.Count)
-            {
-                activeWaypoints = -1;
-            }
         }
 
-        // Main steering loop: turn toward the route, adjust speed, move forward, sync runtime state.
-        private void Update()
+        // FixedUpdate gives route prediction and live execution a matching, stable physics step.
+        private void FixedUpdate()
         {
             if (Runtime == null || MovementProfile == null)
             {
                 return;
             }
 
-            float dt = Time.deltaTime;
-            if (dt <= 0f)
-            {
-                return;
-            }
-
-            AdvanceWaypointsIfReached(movementState.Position);
-
             MovementCommand command = BuildMovementCommand();
-            movementState = movementModel.Step(movementState, command, MovementProfile, dt);
+
+            movementState = movementModel.Step(
+                movementState,
+                command,
+                MovementProfile,
+                Time.fixedDeltaTime);
 
             ApplyMovementState();
-            AdvanceWaypointsIfReached(movementState.Position);
 
-            if (!HasPath() && movementState.SpeedKnots <= 0.001f)
+            if (forceStop &&
+                movementState.SpeedKnots <= 0.001f &&
+                movementState.VelocityWorld.sqrMagnitude <= 0.000001f)
             {
                 forceStop = false;
             }
@@ -225,28 +216,36 @@ namespace OA.Presentation.Units
             SyncRuntimeValues();
         }
 
-        // Builds a command from the current route and speed mode for the movement model.
+        // Builds a command from route progress, look-ahead guidance, and the active speed intent.
         private MovementCommand BuildMovementCommand()
         {
             if (forceStop)
             {
                 return MovementCommand.Stop(movementState.Position);
             }
-            if (!HasPath())
+
+            if (pathPoints.Count < 2)
             {
                 return MovementCommand.Hold(movementState.Position, routeChangedThisFrame);
             }
 
-            Vector2 steeringTarget = GetSteeringTarget(movementState.Position);
-            float remainingDistance = CalculateRemainingDistance(movementState.Position);
-            float speedLimitKnots = pathPoints[activeWaypoints].SpeedLimitKnots;
-
-            return MovementCommand.Move(
-                steeringTarget,
-                remainingDistance,
+            return ShipRouteFollower.BuildCommand(
+                movementState,
+                pathPoints,
+                ref routeFollowState,
                 speedMode,
-                speedLimitKnots,
-                routeChangedThisFrame);
+                lookAheadDistance,
+                waypointReachDistance,
+                routeChangedThisFrame,
+                out _);
+        }
+
+        private void ClearRouteState()
+        {
+            pathPoints.Clear();
+            routeFollowState.Reset();
+            forceStop = false;
+            routeChangedThisFrame = false;
         }
 
         private void ApplyMovementState()
@@ -259,80 +258,11 @@ namespace OA.Presentation.Units
             transform.rotation = Quaternion.Euler(0f, 0f, movementState.HeadingDegrees);
         }
 
-
         // Reads transform.position as a 2D point.
         private Vector2 GetPosition2D()
         {
             Vector3 pos = transform.position;
             return new Vector2(pos.x, pos.y);
-        }
-
-
-        // Skips waypoints once the ship gets close enough to count as reached.
-        private void AdvanceWaypointsIfReached(Vector2 position)
-        {
-            while (HasPath())
-            {
-                float dist = Vector2.Distance(position, pathPoints[activeWaypoints].Position);
-                if (dist > waypointReachDistance)
-                {
-                    break;
-                }
-
-                activeWaypoints++;
-            }
-
-            if (activeWaypoints >= pathPoints.Count)
-            {
-                activeWaypoints = -1;
-            }
-        }
-
-        // Picks a look-ahead target along the remaining path for smoother steering.
-        private Vector2 GetSteeringTarget(Vector2 position)
-        {
-            if (!HasPath())
-            {
-                return position;
-            }
-
-            float remaining = Mathf.Max(0.01f, lookAheadDistance);
-            Vector2 cursor = position;
-
-            for (int i = activeWaypoints; i < pathPoints.Count; i++)
-            {
-                Vector2 next = pathPoints[i].Position;
-                float segment = Vector2.Distance(cursor, next);
-
-                if (segment >= remaining)
-                {
-                    float t = remaining / Mathf.Max(0.0001f, segment);
-                    return Vector2.Lerp(cursor, next, t);
-                }
-
-                remaining -= segment;
-                cursor = next;
-            }
-
-            return pathPoints[pathPoints.Count - 1].Position;
-        }
-
-
-        // Sums remaining route distance so braking can start before the final point.
-        private float CalculateRemainingDistance(Vector2 fromPosition)
-        {
-            if (!HasPath())
-            {
-                return 0f;
-            }
-
-            float total = Vector2.Distance(fromPosition, pathPoints[activeWaypoints].Position);
-            for (int i = activeWaypoints; i < pathPoints.Count - 1; i++)
-            {
-                total += Vector2.Distance(pathPoints[i].Position, pathPoints[i + 1].Position);
-            }
-
-            return total;
         }
 
         // Mirrors transform/speed values back into UnitRuntime for simulation-side readers.

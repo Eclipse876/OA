@@ -1,4 +1,7 @@
-using OA.Simulation.Movement;
+// ShipMovementModel.cs:
+// Physical movement for a ship after navigation has supplied a steering target.
+// Speed is controlled in knots, while heading changes, rudder reversal, and
+// sideways slip create the slow heavy motion the player actually sees.
 using OA.Simulation.Units;
 using UnityEngine;
 
@@ -6,11 +9,13 @@ namespace OA.Simulation.Movement
 {
     public sealed class ShipMovementModel
     {
+        // Advances one ship for one frame. The route planner uses this exact method
+        // during prediction so rendered routes and live movement share one authority.
         public MovementState Step(
-               MovementState state,
-               MovementCommand command,
-               MovementProfileDefinition profile,
-               float deltaTime)
+            MovementState state,
+            MovementCommand command,
+            MovementProfileDefinition profile,
+            float deltaTime)
         {
             if (profile == null || deltaTime <= 0f)
             {
@@ -18,36 +23,57 @@ namespace OA.Simulation.Movement
             }
 
             ShipHandlingProfile handling = ShipAgilityPresets.Resolve(profile);
-            float simDt = deltaTime * Mathf.Max(0.001f, profile.simulationSecondsPerRealSecond);
+            float simDt = deltaTime *
+                          Mathf.Max(0.001f, profile.simulationSecondsPerRealSecond);
+
+            // Velocity is the real motion of the unit, so it must count when braking.
+            // This matters after a turn when the bow and travel direction are not aligned.
+            float physicalSpeedKnots = MovementMath.WorldUnitsPerSecondToKnots(
+                state.VelocityWorld.magnitude,
+                profile.metersPerWorldUnit);
+
+            float currentSpeedKnots = Mathf.Max(
+                Mathf.Max(0f, state.SpeedKnots),
+                physicalSpeedKnots);
 
             float targetSpeedKnots = GetCommandTargetSpeedKnots(command, profile);
-            float safeSpeedKnots = GetNormalBrakingSafeSpeedKnots(command, profile);
 
             if (command.Intent == MovementIntent.Move)
             {
-                targetSpeedKnots = Mathf.Min(targetSpeedKnots, safeSpeedKnots);
+                float arrivalSafeSpeed = GetNormalBrakingSafeSpeedKnots(
+                    command,
+                    profile);
+
+                targetSpeedKnots = Mathf.Min(targetSpeedKnots, arrivalSafeSpeed);
 
                 if (command.SpeedLimitKnots > 0.0001f)
                 {
-                    targetSpeedKnots = Mathf.Min(targetSpeedKnots, command.SpeedLimitKnots);
+                    targetSpeedKnots = Mathf.Min(
+                        targetSpeedKnots,
+                        command.SpeedLimitKnots);
                 }
-
             }
 
-            bool useMaxDeceleration = ShouldUseMaxDeceleration(state, command, profile, safeSpeedKnots, simDt);
+            bool useMaxDeceleration = ShouldUseMaxDeceleration(
+                currentSpeedKnots,
+                targetSpeedKnots,
+                command,
+                profile,
+                simDt);
 
-            float speedRate = state.SpeedKnots < targetSpeedKnots
+            float speedRate = currentSpeedKnots < targetSpeedKnots
                 ? profile.accelerationKnotsPerSecond
                 : useMaxDeceleration
                     ? profile.maxDecelerationKnotsPerSecond
                     : profile.decelerationKnotsPerSecond;
 
             float nextSpeedKnots = Mathf.MoveTowards(
-                state.SpeedKnots, targetSpeedKnots, Mathf.Max(0f, speedRate) * simDt);
-
-            float desiredHeading = state.HeadingDegrees;
+                currentSpeedKnots,
+                targetSpeedKnots,
+                Mathf.Max(0f, speedRate) * simDt);
 
             bool hasSteeringTarget = false;
+            float desiredHeading = state.HeadingDegrees;
 
             if (command.Intent == MovementIntent.Move)
             {
@@ -60,15 +86,25 @@ namespace OA.Simulation.Movement
                 }
             }
 
+            // Rudder does not teleport from port to starboard. Reversing a turn takes time.
             float desiredRudder = 0f;
+
             if (hasSteeringTarget)
             {
-                float headingDelta = Mathf.DeltaAngle(state.HeadingDegrees, desiredHeading);
+                float headingDelta = Mathf.DeltaAngle(
+                    state.HeadingDegrees,
+                    desiredHeading);
+
                 desiredRudder = Mathf.Clamp(headingDelta / 45f, -1f, 1f);
             }
 
-            float rudderRate = 2f / Mathf.Max(0.001f, handling.RudderShiftTimeSeconds);
-            float nextRudder = Mathf.MoveTowards(state.Rudder, desiredRudder, rudderRate * simDt);
+            float rudderRate = 2f /
+                               Mathf.Max(0.001f, handling.RudderShiftTimeSeconds);
+
+            float nextRudder = Mathf.MoveTowards(
+                state.Rudder,
+                desiredRudder,
+                rudderRate * simDt);
 
             float maxTurnRate = ShipKinematicUtility.CalculateTurnRateDegreesPerSecond(
                 nextSpeedKnots,
@@ -76,6 +112,7 @@ namespace OA.Simulation.Movement
                 handling);
 
             float targetYawRate = nextRudder * maxTurnRate;
+
             float nextYawRate = Mathf.MoveTowards(
                 state.YawRateDegreesPerSecond,
                 targetYawRate,
@@ -83,7 +120,9 @@ namespace OA.Simulation.Movement
 
             if (Mathf.Abs(desiredRudder) < 0.001f)
             {
-                float dampingAlpha = 1f - Mathf.Exp(-handling.YawDampingPerSecond * simDt);
+                float dampingAlpha =
+                    1f - Mathf.Exp(-handling.YawDampingPerSecond * simDt);
+
                 nextYawRate = Mathf.Lerp(nextYawRate, 0f, dampingAlpha);
             }
 
@@ -93,30 +132,58 @@ namespace OA.Simulation.Movement
                 ? Mathf.Clamp01(Mathf.Abs(nextYawRate) / maxTurnRate)
                 : 0f;
 
+            // Turning eats speed. This is intentionally mild; turn speed planning
+            // still provides the clear tactical Slow/Cruise/Flank behavior.
             if (turnIntensity > 0f && handling.TurnSpeedLossFactor > 0f)
             {
-                float lossFraction = Mathf.Clamp01(handling.TurnSpeedLossFactor * turnIntensity * simDt);
+                float lossFraction = Mathf.Clamp01(
+                    handling.TurnSpeedLossFactor * turnIntensity * simDt);
+
                 nextSpeedKnots *= 1f - lossFraction;
             }
 
-            if (targetSpeedKnots <= 0f && nextSpeedKnots <= 0.001f)
+            if (nextSpeedKnots <= 0.001f)
             {
                 nextSpeedKnots = 0f;
             }
 
-            Vector2 headingVector = MovementMath.HeadingDegreesToVector(nextHeading);
-            float targetWorldSpeed = MovementMath.KnotsToWorldUnitsPerSecond(nextSpeedKnots, profile.metersPerWorldUnit);
-            Vector2 desiredVelocity = headingVector * targetWorldSpeed;
+            Vector2 headingVector =
+                MovementMath.HeadingDegreesToVector(nextHeading);
 
-            float velocityAlpha = MovementMath.ExpSmoothing(simDt, handling.VelocityAlignmentTimeSeconds);
-            Vector2 nextVelocity = Vector2.Lerp(state.VelocityWorld, desiredVelocity, velocityAlpha);
+            Vector2 currentDirection = state.VelocityWorld.sqrMagnitude > 0.000001f
+                ? state.VelocityWorld.normalized
+                : headingVector;
 
-            nextVelocity = ClampDrift(nextVelocity, headingVector, nextHeading, handling.MaxDriftAngleDegrees);
+            // The travel direction eases toward the bow rather than snapping to it.
+            // Larger alignment times are the visible sideways slip of larger hulls.
+            float velocityAlpha = MovementMath.ExpSmoothing(
+                simDt,
+                handling.VelocityAlignmentTimeSeconds);
 
-            if (nextSpeedKnots <= 0.001f && nextVelocity.sqrMagnitude <= 0.0001f)
+            Vector2 nextDirection = Vector2.Lerp(
+                currentDirection,
+                headingVector,
+                velocityAlpha);
+
+            if (nextDirection.sqrMagnitude <= 0.000001f)
             {
-                nextVelocity = Vector2.zero;
+                nextDirection = headingVector;
             }
+            else
+            {
+                nextDirection.Normalize();
+            }
+
+            float targetWorldSpeed = MovementMath.KnotsToWorldUnitsPerSecond(
+                nextSpeedKnots,
+                profile.metersPerWorldUnit);
+
+            Vector2 nextVelocity = nextDirection * targetWorldSpeed;
+
+            nextVelocity = ClampDrift(
+                nextVelocity,
+                nextHeading,
+                handling.MaxDriftAngleDegrees);
 
             Vector2 nextPosition = state.Position + nextVelocity * simDt;
 
@@ -131,42 +198,62 @@ namespace OA.Simulation.Movement
             };
         }
 
-        private static float GetCommandTargetSpeedKnots(MovementCommand command, MovementProfileDefinition profile)
+        private static float GetCommandTargetSpeedKnots(
+            MovementCommand command,
+            MovementProfileDefinition profile)
         {
-            if (command.Intent == MovementIntent.Stop || command.Intent == MovementIntent.Hold)
+            if (command.Intent == MovementIntent.Stop ||
+                command.Intent == MovementIntent.Hold)
             {
                 return 0f;
             }
 
-            return ShipKinematicUtility.GetTargetSpeedKnots(command.SpeedMode, profile);
+            return ShipKinematicUtility.GetTargetSpeedKnots(
+                command.SpeedMode,
+                profile);
         }
 
-        private static float GetNormalBrakingSafeSpeedKnots(MovementCommand command, MovementProfileDefinition profile)
+        // Normal arrival braking computes how fast the ship may safely be moving
+        // if it should arrive gently at the final waypoint.
+        private static float GetNormalBrakingSafeSpeedKnots(
+            MovementCommand command,
+            MovementProfileDefinition profile)
         {
             if (command.Intent != MovementIntent.Move)
             {
                 return 0f;
             }
-            float decelWorld = 
-                MovementMath.KnotsPerSecondToWorldUnitsPerSecondSquared(
-                profile.decelerationKnotsPerSecond, 
-                profile.metersPerWorldUnit);
 
-            if (decelWorld < 0.00001f)
+            float decelerationWorld =
+                MovementMath.KnotsPerSecondToWorldUnitsPerSecondSquared(
+                    profile.decelerationKnotsPerSecond,
+                    profile.metersPerWorldUnit);
+
+            if (decelerationWorld <= 0.00001f)
             {
                 return 0f;
             }
 
-            float useableDistance = Mathf.Max(0f, command.RemainingDistanceWorld - profile.stoppingDistance);
-            float safeSpeedWorld = Mathf.Sqrt(2f * decelWorld * useableDistance);
-            return MovementMath.WorldUnitsPerSecondToKnots(safeSpeedWorld, profile.metersPerWorldUnit);
+            float usableDistance = Mathf.Max(
+                0f,
+                command.RemainingDistanceWorld - profile.stoppingDistance);
+
+            float safeSpeedWorld = Mathf.Sqrt(
+                2f * decelerationWorld * usableDistance);
+
+            return MovementMath.WorldUnitsPerSecondToKnots(
+                safeSpeedWorld,
+                profile.metersPerWorldUnit);
         }
-        
+
+        // Maximum deceleration is not a movement mode. It is only permitted for
+        // an explicit stop, or for the first response to a changed route whose
+        // newly required speed cannot be reached using normal deceleration.
         private static bool ShouldUseMaxDeceleration(
-            MovementState state,
+            float currentSpeedKnots,
+            float targetSpeedKnots,
             MovementCommand command,
             MovementProfileDefinition profile,
-            float safeSpeedKnots,
             float simDt)
         {
             if (command.Intent == MovementIntent.Stop)
@@ -174,37 +261,56 @@ namespace OA.Simulation.Movement
                 return true;
             }
 
-            if (command.Intent == MovementIntent.Hold)
+            if (!command.RouteChanged || currentSpeedKnots <= targetSpeedKnots)
             {
-                return command.RouteChanged && state.SpeedKnots > 0.001f;
+                return false;
             }
 
-            float toleraceKnots = Mathf.Max(0.05f, profile.decelerationKnotsPerSecond * simDt * 1.5f);
-            return state.SpeedKnots > safeSpeedKnots + toleraceKnots;
+            float normalNextSpeed = Mathf.MoveTowards(
+                currentSpeedKnots,
+                targetSpeedKnots,
+                Mathf.Max(0f, profile.decelerationKnotsPerSecond) * simDt);
+
+            float tolerance = Mathf.Max(
+                0.05f,
+                profile.decelerationKnotsPerSecond * simDt * 0.25f);
+
+            return normalNextSpeed > targetSpeedKnots + tolerance;
         }
 
+        // Caps visual sideslip so velocity can lag behind the bow without a ship
+        // drifting broadside forever.
         private static Vector2 ClampDrift(
             Vector2 velocity,
-            Vector2 headingVector,
             float headingDegrees,
             float maxDriftAngleDegrees)
-        { 
-            if (velocity.sqrMagnitude < 0.0001f || maxDriftAngleDegrees <= 0f)
+        {
+            if (velocity.sqrMagnitude < 0.0001f ||
+                maxDriftAngleDegrees <= 0f)
             {
                 return velocity;
             }
 
             float speed = velocity.magnitude;
-            float velocityHeading = MovementMath.DirectionToHeadingDegrees(velocity);
-            float drift = Mathf.DeltaAngle(headingDegrees, velocityHeading);
-            float clampedDrift = Mathf.Clamp(drift, -maxDriftAngleDegrees, maxDriftAngleDegrees);
-            
+            float velocityHeading =
+                MovementMath.DirectionToHeadingDegrees(velocity);
+
+            float drift = Mathf.DeltaAngle(
+                headingDegrees,
+                velocityHeading);
+
+            float clampedDrift = Mathf.Clamp(
+                drift,
+                -maxDriftAngleDegrees,
+                maxDriftAngleDegrees);
+
             if (Mathf.Approximately(drift, clampedDrift))
             {
                 return velocity;
             }
 
-            return MovementMath.HeadingDegreesToVector(headingDegrees + clampedDrift) * speed;
+            return MovementMath.HeadingDegreesToVector(
+                headingDegrees + clampedDrift) * speed;
         }
-    } 
+    }
 }
