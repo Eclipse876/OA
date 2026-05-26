@@ -1026,55 +1026,56 @@ namespace OA.Presentation.Debug
         // Displays the immediate order, later pass-through orders, and the final destination distinctly.
         private void RefreshWaypointMarkers()
         {
-            if (nextWaypointMarkerRenderer == null &&
-                nextWaypointMarkerSprite != null)
+            if (routeWaypoints.Count == 0)
             {
-                nextWaypointMarkerRenderer = CreateWaypointMarkerRenderer(
-                    "NextWaypointMarker",
-                    nextWaypointMarkerSprite,
-                    Color.white);
-            }
-
-            if (lastWaypointMarkerRenderer == null &&
-                nextWaypointMarkerSprite != null)
-            {
-                lastWaypointMarkerRenderer = CreateWaypointMarkerRenderer(
-                    "LastWaypointMarker",
-                    nextWaypointMarkerSprite,
-                    lastWaypointMarkerColor);
+                DestroyAllWaypointMarkers();
+                return;
             }
 
             bool showNext =
-                nextWaypointMarkerRenderer != null &&
+                nextWaypointMarkerSprite != null &&
                 routeWaypoints.Count > 1;
 
-            if (nextWaypointMarkerRenderer != null)
+            if (showNext)
             {
-                nextWaypointMarkerRenderer.gameObject.SetActive(showNext);
-
-                if (showNext)
+                if (nextWaypointMarkerRenderer == null)
                 {
-                    PositionWaypointMarker(
-                        nextWaypointMarkerRenderer,
-                        routeWaypoints[0].World);
+                    nextWaypointMarkerRenderer = CreateWaypointMarkerRenderer(
+                        "NextWaypointMarker",
+                        nextWaypointMarkerSprite,
+                        Color.white);
                 }
+
+                PositionWaypointMarker(
+                    nextWaypointMarkerRenderer,
+                    routeWaypoints[0].World);
+            }
+            else
+            {
+                DestroyWaypointMarker(ref nextWaypointMarkerRenderer);
             }
 
             bool showLast =
-                lastWaypointMarkerRenderer != null &&
-                routeWaypoints.Count > 0;
+                nextWaypointMarkerSprite != null;
 
-            if (lastWaypointMarkerRenderer != null)
+            if (showLast)
             {
-                lastWaypointMarkerRenderer.color = lastWaypointMarkerColor;
-                lastWaypointMarkerRenderer.gameObject.SetActive(showLast);
-
-                if (showLast)
+                if (lastWaypointMarkerRenderer == null)
                 {
-                    PositionWaypointMarker(
-                        lastWaypointMarkerRenderer,
-                        routeWaypoints[routeWaypoints.Count - 1].World);
+                    lastWaypointMarkerRenderer = CreateWaypointMarkerRenderer(
+                        "LastWaypointMarker",
+                        nextWaypointMarkerSprite,
+                        lastWaypointMarkerColor);
                 }
+
+                lastWaypointMarkerRenderer.color = lastWaypointMarkerColor;
+                PositionWaypointMarker(
+                    lastWaypointMarkerRenderer,
+                    routeWaypoints[routeWaypoints.Count - 1].World);
+            }
+            else
+            {
+                DestroyWaypointMarker(ref lastWaypointMarkerRenderer);
             }
 
             int firstOrdinaryWaypoint = showNext ? 1 : 0;
@@ -1083,7 +1084,9 @@ namespace OA.Presentation.Debug
                 : routeWaypoints.Count;
 
             int ordinaryMarkerCount =
-                Mathf.Max(0, ordinaryWaypointEnd - firstOrdinaryWaypoint);
+                waypointMarkerSprite != null
+                    ? Mathf.Max(0, ordinaryWaypointEnd - firstOrdinaryWaypoint)
+                    : 0;
 
             if (waypointMarkerSprite != null)
             {
@@ -1098,19 +1101,20 @@ namespace OA.Presentation.Debug
                 }
             }
 
-            for (int i = 0; i < waypointMarkerPool.Count; i++)
+            while (waypointMarkerPool.Count > ordinaryMarkerCount)
             {
-                bool active = waypointMarkerSprite != null &&
-                              i < ordinaryMarkerCount;
-                SpriteRenderer marker = waypointMarkerPool[i];
-                marker.gameObject.SetActive(active);
+                int lastIndex = waypointMarkerPool.Count - 1;
+                SpriteRenderer marker = waypointMarkerPool[lastIndex];
+                waypointMarkerPool.RemoveAt(lastIndex);
+                Destroy(marker.gameObject);
+            }
 
-                if (active)
-                {
-                    PositionWaypointMarker(
-                        marker,
-                        routeWaypoints[i + firstOrdinaryWaypoint].World);
-                }
+            for (int i = 0; i < ordinaryMarkerCount; i++)
+            {
+                SpriteRenderer marker = waypointMarkerPool[i];
+                PositionWaypointMarker(
+                    marker,
+                    routeWaypoints[i + firstOrdinaryWaypoint].World);
             }
         }
 
@@ -1131,8 +1135,31 @@ namespace OA.Presentation.Debug
             marker.sprite = sprite;
             marker.color = color;
             marker.sortingOrder = waypointMarkerOrderInLayer;
-            markerObject.SetActive(false);
             return marker;
+        }
+
+        // A removed route order should not leave hidden marker objects in the scene.
+        private void DestroyAllWaypointMarkers()
+        {
+            DestroyWaypointMarker(ref nextWaypointMarkerRenderer);
+            DestroyWaypointMarker(ref lastWaypointMarkerRenderer);
+
+            for (int i = waypointMarkerPool.Count - 1; i >= 0; i--)
+            {
+                Destroy(waypointMarkerPool[i].gameObject);
+                waypointMarkerPool.RemoveAt(i);
+            }
+        }
+
+        private static void DestroyWaypointMarker(ref SpriteRenderer marker)
+        {
+            if (marker == null)
+            {
+                return;
+            }
+
+            Destroy(marker.gameObject);
+            marker = null;
         }
 
         // Keeps marker position updates identical for the highlighted and ordinary sprites.

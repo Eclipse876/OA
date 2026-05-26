@@ -23,7 +23,7 @@ namespace OA.Presentation.Debug
 
         [SerializeField, Min(0.001f)] private float width = 0.05f;
 
-        private readonly List<LineRenderer> pool = new List<LineRenderer>(256);
+        private readonly List<LineRenderer> visibleSegments = new List<LineRenderer>(256);
 
         private void Awake()
         {
@@ -100,18 +100,12 @@ namespace OA.Presentation.Debug
                 groupStart = groupEnd;
             }
 
-            for (int i = usedLines; i < pool.Count; i++)
-            {
-                pool[i].gameObject.SetActive(false);
-            }
+            DestroySegmentsAfter(usedLines);
         }
 
         public void Clear()
         {
-            for (int i = 0; i < pool.Count; i++)
-            {
-                pool[i].gameObject.SetActive(false);
-            }
+            DestroySegmentsAfter(0);
         }
 
         private void DrawSpeedGroup(
@@ -129,9 +123,9 @@ namespace OA.Presentation.Debug
                 return; // Not enough points to draw a line.
             }
 
-            EnsurePool(poolIndex + 1);
+            EnsureSegments(poolIndex + 1);
 
-            LineRenderer line = pool[poolIndex];
+            LineRenderer line = visibleSegments[poolIndex];
 
             line.gameObject.SetActive(true);
             line.positionCount = endIndex - startIndex + 1;
@@ -233,14 +227,24 @@ namespace OA.Presentation.Debug
                 Mathf.InverseLerp(cruise, flank, speedKnots));
         }
 
-        // Grows the segment pool only when a route needs another gradient chunk.
-        private void EnsurePool(int count)
+        // Adds visible chunks only when the remaining route currently needs them.
+        private void EnsureSegments(int count)
         {
-            while (pool.Count < count)
+            while (visibleSegments.Count < count)
             {
                 LineRenderer segment = Instantiate(segmentPrefab, transform);
                 segment.gameObject.SetActive(false);
-                pool.Add(segment);
+                visibleSegments.Add(segment);
+            }
+        }
+
+        // Generated chunks are discarded as soon as their portion of the route is consumed.
+        private void DestroySegmentsAfter(int retainedCount)
+        {
+            for (int i = visibleSegments.Count - 1; i >= retainedCount; i--)
+            {
+                Destroy(visibleSegments[i].gameObject);
+                visibleSegments.RemoveAt(i);
             }
         }
     }
