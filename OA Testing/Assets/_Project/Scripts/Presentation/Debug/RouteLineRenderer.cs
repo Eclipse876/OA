@@ -40,19 +40,45 @@ namespace OA.Presentation.Debug
             float cruiseSpeedKnots,
             float flankSpeedKnots)
         {
+            Vector2 leadingPosition = samples != null && samples.Count > 0
+                ? samples[0].Position
+                : default;
+
+            DrawRemaining(
+                samples,
+                0,
+                leadingPosition,
+                cruiseSpeedKnots,
+                flankSpeedKnots);
+        }
+
+        // Redraws only the untraveled prediction, beginning at the live ship position.
+        // The leading point follows the vessel so no completed line is left behind it.
+        public void DrawRemaining(
+            IReadOnlyList<ShipRouteSample> samples,
+            int firstVisibleSampleIndex,
+            Vector2 leadingPosition,
+            float cruiseSpeedKnots,
+            float flankSpeedKnots)
+        {
             if (segmentPrefab == null)
             {
                 return; // Can't draw without a prefab.
             }
 
-            if (samples == null || samples.Count < 2)
+            if (samples == null ||
+                samples.Count < 2 ||
+                firstVisibleSampleIndex >= samples.Count - 1)
             {
                 Clear();
                 return; // Not enough points to draw a line.
             }
 
             int usedLines = 0;
-            int groupStart = 0;
+            int groupStart = Mathf.Clamp(
+                firstVisibleSampleIndex,
+                0,
+                samples.Count - 2);
 
             while (groupStart < samples.Count - 1)
             {
@@ -65,6 +91,8 @@ namespace OA.Presentation.Debug
                     samples,
                     groupStart,
                     groupEnd,
+                    usedLines == 0,
+                    leadingPosition,
                     cruiseSpeedKnots,
                     flankSpeedKnots);
 
@@ -91,6 +119,8 @@ namespace OA.Presentation.Debug
             IReadOnlyList<ShipRouteSample> samples,
             int startIndex,
             int endIndex,
+            bool replaceStartPosition,
+            Vector2 startPosition,
             float cruiseSpeedKnots,
             float flankSpeedKnots)
         {
@@ -116,7 +146,10 @@ namespace OA.Presentation.Debug
 
             for (int i = startIndex; i <= endIndex; i++)
             {
-                Vector2 p = samples[i].Position;
+                Vector2 p = replaceStartPosition && i == startIndex
+                    ? startPosition
+                    : samples[i].Position;
+
                 line.SetPosition(i - startIndex, new Vector3(p.x, p.y, 0f));
             }
         }

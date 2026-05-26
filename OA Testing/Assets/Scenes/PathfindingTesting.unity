@@ -128876,8 +128876,12 @@ MonoBehaviour:
   gridPresenterBehaviour: {fileID: 184174279}
   activeRouteLine: {fileID: 1984007870}
   queuedRouteLine: {fileID: 92007589}
-  waypointMarkerPrefab: {fileID: 0}
+  waypointMarkerSprite: {fileID: 5194050382096507731, guid: 62f77814bea7d734f94adf1d2e83763e, type: 3}
+  nextWaypointMarkerSprite: {fileID: 4690852756599274388, guid: 0e2c06f7c28c0a647889face33fa0159, type: 3}
+  lastWaypointMarkerColor: {r: 0.1333333, g: 0.5450981, b: 0.1333333, a: 1}
   waypointMarkerRoot: {fileID: 0}
+  waypointMarkerOrderInLayer: 11
+  waypointMarkerScale: 0.35
   guaranteedSpawnCell: {x: 2, y: 2}
   guaranteedGoalCell: {x: 21, y: 31}
   routeSampleFactor: 0.2

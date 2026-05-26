@@ -31,8 +31,12 @@ namespace OA.Presentation.Debug
         [SerializeField] private LineRenderer queuedRouteLine;
 
         [Header("Waypoint Display")]
-        [SerializeField] private SpriteRenderer waypointMarkerPrefab;
+        [SerializeField] private Sprite waypointMarkerSprite;
+        [SerializeField] private Sprite nextWaypointMarkerSprite;
+        [SerializeField] private Color lastWaypointMarkerColor = Color.black;
         [SerializeField] private Transform waypointMarkerRoot;
+        [SerializeField] private int waypointMarkerOrderInLayer = 11;
+        [SerializeField, Min(0.01f)] private float waypointMarkerScale = 0.35f;
 
         // Default cells and tuning for click routing, rerolls, and debug line drawing.
         [Header("Defaults")]
@@ -70,6 +74,9 @@ namespace OA.Presentation.Debug
         private readonly List<Waypoint> previousRouteWaypoints = new List<Waypoint>(32);
         private readonly List<SpriteRenderer> waypointMarkerPool = new List<SpriteRenderer>(32);
         private readonly Vector2Int[] neighborBuffer = new Vector2Int[6];
+        private SpriteRenderer nextWaypointMarkerRenderer;
+        private SpriteRenderer lastWaypointMarkerRenderer;
+        private int activeRouteVisibleSampleIndex;
 
         // Runtime services resolved from the assigned MonoBehaviours in Awake.
         private INavigationPathService pathService;
@@ -221,6 +228,7 @@ namespace OA.Presentation.Debug
             routeWaypoints.Clear();
             acceptedWaypointDistances.Clear();
             activeRoute.Clear();
+            activeRouteVisibleSampleIndex = 0;
             candidateRoute.Clear();
             shipAgent.SetPath(System.Array.Empty<Vector2>());
             ClearLines();
@@ -509,6 +517,7 @@ namespace OA.Presentation.Debug
             if (routeWaypoints.Count == 0)
             {
                 activeRoute.Clear();
+                activeRouteVisibleSampleIndex = 0;
                 candidateRoute.Clear();
                 activeRouteLine?.Clear();
                 return false;
@@ -615,6 +624,7 @@ namespace OA.Presentation.Debug
                     }
 
                     activeRoute.CopyFrom(candidateRoute);
+                    activeRouteVisibleSampleIndex = 0;
                     shipAgent.SetRoute(activeRoute);
                     activeRouteLine?.Draw(
                         activeRoute.PredictedSamples,
@@ -819,6 +829,7 @@ namespace OA.Presentation.Debug
             routeWaypoints.Clear();
             acceptedWaypointDistances.Clear();
             activeRoute.Clear();
+            activeRouteVisibleSampleIndex = 0;
             candidateRoute.Clear();
             activeRouteLine?.Clear();
             UpdateQueuedRouteLine();
@@ -934,6 +945,57 @@ namespace OA.Presentation.Debug
             if (!shipAgent.HasPath() && !activeDestination.HasValue)
             {
                 activeRouteLine.Clear();
+                return;
+            }
+
+            if (!activeRoute.IsValid ||
+                activeRoute.PredictedSamples.Count < 2 ||
+                shipAgent.MovementProfile == null)
+            {
+                activeRouteLine.Clear();
+                return;
+            }
+
+            Vector2 shipPosition = GetShipPosition();
+            AdvanceVisibleRouteSampleIndex(shipPosition);
+
+            activeRouteLine.DrawRemaining(
+                activeRoute.PredictedSamples,
+                activeRouteVisibleSampleIndex,
+                shipPosition,
+                shipAgent.MovementProfile.cruiseSpeedKnots,
+                shipAgent.MovementProfile.flankSpeedKnots);
+        }
+
+        // Advances locally along the predicted track so crossing looped route legs
+        // cannot remove a future section merely because it passes near the ship.
+        private void AdvanceVisibleRouteSampleIndex(Vector2 shipPosition)
+        {
+            int lastVisibleStart =
+                Mathf.Max(0, activeRoute.PredictedSamples.Count - 2);
+
+            activeRouteVisibleSampleIndex = Mathf.Clamp(
+                activeRouteVisibleSampleIndex,
+                0,
+                lastVisibleStart);
+
+            while (activeRouteVisibleSampleIndex < lastVisibleStart)
+            {
+                Vector2 current =
+                    activeRoute.PredictedSamples[activeRouteVisibleSampleIndex].Position;
+
+                Vector2 next =
+                    activeRoute.PredictedSamples[activeRouteVisibleSampleIndex + 1].Position;
+
+                float currentDistanceSqr = (shipPosition - current).sqrMagnitude;
+                float nextDistanceSqr = (shipPosition - next).sqrMagnitude;
+
+                if (nextDistanceSqr > currentDistanceSqr)
+                {
+                    break;
+                }
+
+                activeRouteVisibleSampleIndex++;
             }
         }
 
@@ -961,40 +1023,125 @@ namespace OA.Presentation.Debug
             }
         }
 
-        // Displays markers only for waypoints still present in the active order.
+        // Displays the immediate order, later pass-through orders, and the final destination distinctly.
         private void RefreshWaypointMarkers()
         {
-            if (waypointMarkerPrefab == null)
+            if (nextWaypointMarkerRenderer == null &&
+                nextWaypointMarkerSprite != null)
             {
-                return;
+                nextWaypointMarkerRenderer = CreateWaypointMarkerRenderer(
+                    "NextWaypointMarker",
+                    nextWaypointMarkerSprite,
+                    Color.white);
             }
 
-            while (waypointMarkerPool.Count < routeWaypoints.Count)
+            if (lastWaypointMarkerRenderer == null &&
+                nextWaypointMarkerSprite != null)
             {
-                Transform parent = waypointMarkerRoot != null
-                    ? waypointMarkerRoot
-                    : transform;
+                lastWaypointMarkerRenderer = CreateWaypointMarkerRenderer(
+                    "LastWaypointMarker",
+                    nextWaypointMarkerSprite,
+                    lastWaypointMarkerColor);
+            }
 
-                SpriteRenderer marker = Instantiate(waypointMarkerPrefab, parent);
-                marker.gameObject.SetActive(false);
-                waypointMarkerPool.Add(marker);
+            bool showNext =
+                nextWaypointMarkerRenderer != null &&
+                routeWaypoints.Count > 1;
+
+            if (nextWaypointMarkerRenderer != null)
+            {
+                nextWaypointMarkerRenderer.gameObject.SetActive(showNext);
+
+                if (showNext)
+                {
+                    PositionWaypointMarker(
+                        nextWaypointMarkerRenderer,
+                        routeWaypoints[0].World);
+                }
+            }
+
+            bool showLast =
+                lastWaypointMarkerRenderer != null &&
+                routeWaypoints.Count > 0;
+
+            if (lastWaypointMarkerRenderer != null)
+            {
+                lastWaypointMarkerRenderer.color = lastWaypointMarkerColor;
+                lastWaypointMarkerRenderer.gameObject.SetActive(showLast);
+
+                if (showLast)
+                {
+                    PositionWaypointMarker(
+                        lastWaypointMarkerRenderer,
+                        routeWaypoints[routeWaypoints.Count - 1].World);
+                }
+            }
+
+            int firstOrdinaryWaypoint = showNext ? 1 : 0;
+            int ordinaryWaypointEnd = showLast
+                ? routeWaypoints.Count - 1
+                : routeWaypoints.Count;
+
+            int ordinaryMarkerCount =
+                Mathf.Max(0, ordinaryWaypointEnd - firstOrdinaryWaypoint);
+
+            if (waypointMarkerSprite != null)
+            {
+                while (waypointMarkerPool.Count < ordinaryMarkerCount)
+                {
+                    SpriteRenderer marker = CreateWaypointMarkerRenderer(
+                        "WaypointMarker",
+                        waypointMarkerSprite,
+                        Color.white);
+
+                    waypointMarkerPool.Add(marker);
+                }
             }
 
             for (int i = 0; i < waypointMarkerPool.Count; i++)
             {
-                bool active = i < routeWaypoints.Count;
+                bool active = waypointMarkerSprite != null &&
+                              i < ordinaryMarkerCount;
                 SpriteRenderer marker = waypointMarkerPool[i];
                 marker.gameObject.SetActive(active);
 
                 if (active)
                 {
-                    Vector2 position = routeWaypoints[i].World;
-                    marker.transform.position = new Vector3(
-                        position.x,
-                        position.y,
-                        marker.transform.position.z);
+                    PositionWaypointMarker(
+                        marker,
+                        routeWaypoints[i + firstOrdinaryWaypoint].World);
                 }
             }
+        }
+
+        // Creates marker renderers at runtime so the inspector only needs the marker art assets.
+        private SpriteRenderer CreateWaypointMarkerRenderer(
+            string markerName,
+            Sprite sprite,
+            Color color)
+        {
+            GameObject markerObject = new GameObject(markerName);
+            Transform markerTransform = markerObject.transform;
+            markerTransform.SetParent(
+                waypointMarkerRoot != null ? waypointMarkerRoot : transform,
+                false);
+            markerTransform.localScale = Vector3.one * waypointMarkerScale;
+
+            SpriteRenderer marker = markerObject.AddComponent<SpriteRenderer>();
+            marker.sprite = sprite;
+            marker.color = color;
+            marker.sortingOrder = waypointMarkerOrderInLayer;
+            markerObject.SetActive(false);
+            return marker;
+        }
+
+        // Keeps marker position updates identical for the highlighted and ordinary sprites.
+        private static void PositionWaypointMarker(SpriteRenderer marker, Vector2 position)
+        {
+            marker.transform.position = new Vector3(
+                position.x,
+                position.y,
+                marker.transform.position.z);
         }
 
         // Reads the ship transform as a 2D world position.
