@@ -23,7 +23,10 @@ namespace OA.Simulation.Movement
         InvalidRequest = 1,
         NoGuidanceCourse = 2,
         PredictedTrackBlocked = 3,
-        PredictionBudgetExceeded = 4
+        PredictionBudgetExceeded = 4,
+
+        // Internal candidate pruning: another executable route already arrives sooner.
+        SlowerThanBestArrival = 5
     }
 
     // A speed-limited guidance point on the geometric route followed by the ship's steering logic.

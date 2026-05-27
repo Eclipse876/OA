@@ -37,7 +37,8 @@ namespace OA.Simulation.Movement
             float lookAheadDistance,
             float arrivalDistance,
             float constrainedTurnSpeedScale,
-            ShipRoute routeOut)
+            ShipRoute routeOut,
+            float maximumUsefulArrivalTimeSeconds = float.PositiveInfinity)
         {
             if (routeOut == null)
             {
@@ -84,7 +85,8 @@ namespace OA.Simulation.Movement
                 fixedDeltaTime,
                 lookAheadDistance,
                 arrivalDistance,
-                routeOut);
+                routeOut,
+                maximumUsefulArrivalTimeSeconds);
         }
 
         // Colors and speed limits originate on the geometry route. They are private
@@ -198,7 +200,8 @@ namespace OA.Simulation.Movement
             float fixedDeltaTime,
             float lookAheadDistance,
             float arrivalDistance,
-            ShipRoute routeOut)
+            ShipRoute routeOut,
+            float maximumUsefulArrivalTimeSeconds)
         {
             float dt = Mathf.Max(0.005f, fixedDeltaTime);
 
@@ -271,6 +274,19 @@ namespace OA.Simulation.Movement
                     routeOut.TotalDistanceWorld = predictedDistance;
                     routeOut.EstimatedTimeSeconds = predictedTime;
                     routeOut.IsValid = routeOut.PredictedSamples.Count >= 2;
+                    return;
+                }
+
+                // Once this candidate is already later than an accepted route,
+                // no future movement can make it the fastest arrival.
+                if (!float.IsPositiveInfinity(maximumUsefulArrivalTimeSeconds) &&
+                    predictedTime > maximumUsefulArrivalTimeSeconds + 0.0001f)
+                {
+                    routeOut.Reject(
+                        ShipRouteFailureReason.SlowerThanBestArrival,
+                        simulatedState.Position,
+                        predictedTime);
+
                     return;
                 }
             }
