@@ -1,0 +1,45 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 83c3a2876a43f2e459b08be8927c04b4, type: 3}
+  m_Name: ShipMovement_Main
+  m_EditorClassIdentifier: OA.Simulation::OA.Simulation.Units.MovementProfileDefinition
+  metersPerWorldUnit: 100
+  simulationSecondsPerRealSecond: 60
+  lengthMeters: 150
+  displacementTons: 40000
+  depthClass: 0
+  depthMeters: 5
+  crewRequired: 50
+  crewComplement: 100
+  cruiseSpeedKnots: 18
+  flankSpeedKnots: 30
+  accelerationKnotsPerSecond: 0.08
+  decelerationKnotsPerSecond: 0.12
+  maxDecelerationKnotsPerSecond: 0.35
+  agility: 2
+  useDebugHandlingOverrides: 0
+  debugRudderShiftTimeSeconds: 5
+  debugYawAccelerationDegreesPerSecondSquared: 1
+  debugYawDampingPerSecond: 1
+  debugVelocityAlignmentTimeSeconds: 8
+  debugMaxDriftAngleDegrees: 12
+  debugTacticalDiameterAtCruiseLengths: 4
+  debugTacticalDiameterAtFlankLengths: 5
+  debugTurnSpeedLossFactor: 0.015
+  debugTightTurnSpeedMultiplier: 0.65
+  safetyRadius: 1
+  stoppingDistance: 0.1
+  maxSpeed: 8
+  acceleration: 10
+  deceleration: 14
+  turnRateDegreesPerSecond: 180
+  turningRadius: 2.5

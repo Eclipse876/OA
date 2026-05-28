@@ -32,6 +32,7 @@ namespace OA.Presentation.Units
 
         private ShipRouteFollowState routeFollowState;
         private MovementState movementState;
+        private OA.Simulation.Navigation.HexMapRuntime navigationMap;
         private MovementSpeedMode speedMode;
         private bool forceStop;
         private bool routeChangedThisFrame;
@@ -44,6 +45,11 @@ namespace OA.Presentation.Units
         public float LookAheadDistance => lookAheadDistance;
         public float WaypointReachDistance => waypointReachDistance;
         public MovementProfileDefinition MovementProfile => Runtime != null ? Runtime.Archetype.movementProfile : null;
+
+        public void SetNavigationMap(OA.Simulation.Navigation.HexMapRuntime map)
+        {
+            navigationMap = map;
+        }
 
         // Optional self-start for scene-placed ships that already have an archetype assigned.
         private void Start()
@@ -234,6 +240,8 @@ namespace OA.Presentation.Units
                 pathPoints,
                 ref routeFollowState,
                 speedMode,
+                MovementProfile,
+                navigationMap,
                 lookAheadDistance,
                 waypointReachDistance,
                 routeChangedThisFrame,

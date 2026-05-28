@@ -40,6 +40,17 @@ namespace OA.Simulation.Movement
 
             if (command.Intent == MovementIntent.Move)
             {
+                float terrainLimitedSpeed = GetCommandTargetSpeedKnots(
+                    command,
+                    profile) * Mathf.Clamp(
+                        command.TerrainSpeedMultiplier,
+                        0.001f,
+                        1f);
+
+                targetSpeedKnots = Mathf.Min(
+                    targetSpeedKnots,
+                    terrainLimitedSpeed);
+
                 float arrivalSafeSpeed = GetNormalBrakingSafeSpeedKnots(
                     command,
                     profile);

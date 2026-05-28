@@ -57,6 +57,10 @@ namespace OA.Presentation.Debug
         [SerializeField, Range(0.01f, 0.95f)] private float constrainedTurnSpeedScaleStep = 0.3f;
         [SerializeField, Range(0.02f, 1f)] private float minimumConstrainedTurnSpeedScale = 0.1f;
 
+        [Header("Planning Budget")]
+        [SerializeField, Min(0.1f)] private float planningBudgetMillisecondsPerFrame = 2f;
+        [SerializeField, Range(0.05f, 1f)] private float severeTurnSpeedFraction = 0.35f;
+
         // Reused generator/path buffers so click-to-move does not allocate more than it needs to.
         private readonly System.Random seedRng = new System.Random();
         private readonly HexMapGenerator generator = new HexMapGenerator();
@@ -74,6 +78,10 @@ namespace OA.Presentation.Debug
         private readonly ShipRoute candidateRoute = new ShipRoute();
         private readonly ShipRoute bestCandidateRoute = new ShipRoute();
         private readonly List<Waypoint> previousRouteWaypoints = new List<Waypoint>(32);
+        private readonly List<Waypoint> committedRouteWaypoints = new List<Waypoint>(32);
+        private readonly List<RouteGeometryCandidate> pendingCandidates = new List<RouteGeometryCandidate>(16);
+        private readonly List<RouteGeometryCandidate> pendingNormalCandidates = new List<RouteGeometryCandidate>(8);
+        private readonly ShipRoutePrediction pendingPrediction = new ShipRoutePrediction();
         private readonly List<SpriteRenderer> waypointMarkerPool = new List<SpriteRenderer>(32);
         private readonly Vector2Int[] neighborBuffer = new Vector2Int[6];
         private SpriteRenderer nextWaypointMarkerRenderer;
@@ -87,6 +95,28 @@ namespace OA.Presentation.Debug
 
         private Waypoint? activeDestination;
         private NavigationProfile displayedNavigationProfile;
+        private NavigationTraversalMask displayedTraversalMask;
+        private NavigationTraversalMask pendingRequiredMask;
+        private NavigationProfile pendingRequiredProfile;
+        private System.Diagnostics.Stopwatch pendingPlanningStopwatch;
+        private bool hasPendingPlanning;
+        private bool pendingPlanSilent;
+        private bool pendingDirectTested;
+        private bool pendingRecoveryQueued;
+        private bool pendingGeometryUnavailable;
+        private int pendingCandidateIndex;
+        private int pendingClearanceAttempt;
+        private int pendingPhysicalCandidates;
+        private int pendingPhysicalSteps;
+        private int pendingAStarLegs;
+        private int pendingPlanFrames;
+        private int pendingMaskHitsAtStart;
+        private int pendingMaskMissesAtStart;
+        private float pendingBestExtraClearance;
+        private float pendingBestTurnSpeedScale;
+        private ShipRouteFailureReason pendingLastFailureReason;
+        private Vector2 pendingLastFailurePosition;
+        private float pendingLastFailureTimeSeconds;
 
         public HexMapRuntime CurrentMap => map;
         public INavigationPathService CurrentPathService => pathService;
@@ -124,6 +154,7 @@ namespace OA.Presentation.Debug
             HandleRerollHotkey();
             HandleFastMoveToggle();
             HandleClickToMoveInput();
+            AdvancePendingRoutePlanning();
             RetirePassedWaypoints();
             HandleRouteCompletion();
             UpdateActiveRouteLine();
@@ -205,6 +236,8 @@ namespace OA.Presentation.Debug
                 BuildMapFromDefinition();
             }
 
+            CancelPendingRoutePlanning();
+
             int seed = debugSettings.fixedSeed > 0
                 ? debugSettings.fixedSeed
                 : seedRng.Next(1, int.MaxValue);
@@ -228,6 +261,7 @@ namespace OA.Presentation.Debug
 
             activeDestination = null;
             routeWaypoints.Clear();
+            committedRouteWaypoints.Clear();
             acceptedWaypointDistances.Clear();
             activeRoute.Clear();
             activeRouteVisibleSampleIndex = 0;
@@ -341,6 +375,9 @@ namespace OA.Presentation.Debug
         // Rebuilds graph topology only when the underlying map has changed.
         private void RebuildNavigation(NavigationProfile profile)
         {
+            CancelPendingRoutePlanning();
+            shipAgent.SetNavigationMap(map);
+
             // First paint establishes the exact world-space center of every visible cell.
             gridPresenter.BuildOrRefresh(map, null);
 
@@ -353,7 +390,12 @@ namespace OA.Presentation.Debug
         // Updates debug shading only when a profile becomes the accepted visible profile.
         private void DisplayAppliedNavigationProfile(NavigationProfile profile)
         {
-            gridPresenter.BuildOrRefresh(map, pathService.LastAppliedBlockedMask);
+            displayedTraversalMask = pathService.GetTraversalMask(map, profile);
+            gridPresenter.BuildOrRefresh(
+                map,
+                displayedTraversalMask != null
+                    ? displayedTraversalMask.BlockedCells
+                    : null);
             displayedNavigationProfile = profile;
         }
 
@@ -382,9 +424,10 @@ namespace OA.Presentation.Debug
 
             if (!ProfilesUseSameTraversalMask(
                 displayedNavigationProfile,
-                requiredProfile))
+                requiredProfile) ||
+                displayedTraversalMask == null ||
+                displayedTraversalMask.MapVersion != map.Version)
             {
-                pathService.ApplyTraversalProfile(map, requiredProfile);
                 DisplayAppliedNavigationProfile(requiredProfile);
             }
 
@@ -475,6 +518,15 @@ namespace OA.Presentation.Debug
                 return;
             }
 
+            // Editing an order that is still being evaluated starts from the
+            // route the ship has actually accepted, not from speculative markers.
+            if (hasPendingPlanning)
+            {
+                CancelPendingRoutePlanning();
+                routeWaypoints.Clear();
+                routeWaypoints.AddRange(committedRouteWaypoints);
+            }
+
             previousRouteWaypoints.Clear();
             previousRouteWaypoints.AddRange(routeWaypoints);
 
@@ -496,6 +548,7 @@ namespace OA.Presentation.Debug
 
             if (TryRouteThroughWaypoints(false))
             {
+                RefreshWaypointMarkers();
                 UpdateQueuedRouteLine();
                 return;
             }
@@ -512,251 +565,504 @@ namespace OA.Presentation.Debug
             UpdateQueuedRouteLine();
         }
 
-        // Plans one continuous route through every requested waypoint.
+        // Begins one continuous route through every requested waypoint.
         // Intermediate waypoints are pass-through locations; only the final destination stops the ship.
+        // Exact motion evaluation is advanced in Update instead of blocking this click.
         private bool TryRouteThroughWaypoints(bool silent)
         {
             if (routeWaypoints.Count == 0)
             {
-                activeRoute.Clear();
-                activeRouteVisibleSampleIndex = 0;
-                candidateRoute.Clear();
-                bestCandidateRoute.Clear();
-                bestCandidateWaypointDistances.Clear();
-                activeRouteLine?.Clear();
+                CancelPendingRoutePlanning();
                 return false;
             }
 
-            System.Diagnostics.Stopwatch planningStopwatch =
-                System.Diagnostics.Stopwatch.StartNew();
+            CancelPendingRoutePlanning();
+            pendingRequiredProfile = EnsureRequiredNavigationProfileApplied();
+            pendingRequiredMask = pathService.GetTraversalMask(
+                map,
+                pendingRequiredProfile);
 
-            int geometricPathAttempts = 0;
-            int physicalPredictionAttempts = 0;
+            if (pendingRequiredMask == null)
+            {
+                return false;
+            }
 
-            NavigationProfile requiredProfile =
-                EnsureRequiredNavigationProfileApplied();
-
-            // Expanded masks below ask A* for progressively wider geometry.
-            // Prediction must still test the ship against its real legal-water mask.
-            bool[] requiredBlockedMask = pathService.LastAppliedBlockedMask;
-            NavigationProfile appliedProfile = requiredProfile;
-
-            ShipRouteFailureReason lastFailureReason =
-                ShipRouteFailureReason.None;
-
-            Vector2 lastFailurePosition = default;
-            float lastFailureTimeSeconds = 0f;
-            bool geometryPathUnavailable = false;
-
-            int clearanceAttempts =
-                Mathf.Max(0, kinematicClearanceAttempts) + 1;
-
-            int maneuverAttempts =
-                Mathf.Max(0, constrainedTurnAttempts) + 1;
-
+            hasPendingPlanning = true;
+            pendingPlanSilent = silent;
+            pendingDirectTested = true;
+            pendingRecoveryQueued = false;
+            pendingGeometryUnavailable = false;
+            pendingCandidateIndex = 0;
+            pendingClearanceAttempt = 0;
+            pendingPhysicalCandidates = 0;
+            pendingPhysicalSteps = 0;
+            pendingAStarLegs = 0;
+            pendingPlanFrames = 0;
+            pendingLastFailureReason = ShipRouteFailureReason.None;
+            pendingLastFailurePosition = default;
+            pendingLastFailureTimeSeconds = 0f;
+            pendingBestExtraClearance = 0f;
+            pendingBestTurnSpeedScale = 1f;
+            pendingMaskHitsAtStart = pathService.TraversalMaskCacheHits;
+            pendingMaskMissesAtStart = pathService.TraversalMaskCacheMisses;
+            pendingPlanningStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            pendingCandidates.Clear();
+            pendingNormalCandidates.Clear();
             bestCandidateRoute.Clear();
             bestCandidateWaypointDistances.Clear();
-            float bestArrivalTimeSeconds = float.PositiveInfinity;
-            float bestDistanceWorld = float.PositiveInfinity;
-            float bestExtraClearance = 0f;
-            float bestTurnSpeedScale = 1f;
-            bool stopSearching = false;
 
-            // Compare every generated executable route by predicted arrival time.
-            // A wider course can be faster than a short course that forces the
-            // ship below its requested cruise or flank speed through tight turns.
-            // Geometry is controlled by clearance only, so each A* result is built
-            // once before the physical prediction tests its possible turn speeds.
-            for (int clearanceAttempt = 0;
-                 clearanceAttempt < clearanceAttempts && !stopSearching;
-                 clearanceAttempt++)
+            if (TryBuildDirectGeometryRoute(pendingRequiredMask))
             {
-                float extraClearance =
-                    clearanceAttempt * Mathf.Max(0f, kinematicClearanceStepWorld);
+                QueueCurrentGeometryCandidate(
+                    pendingRequiredMask,
+                    0f,
+                    1f,
+                    true,
+                    false,
+                    true);
+            }
 
-                NavigationProfile candidateProfile =
-                    CreateNavigationProfile(extraClearance);
+            return true;
+        }
 
-                // Do not repeat an attempt whose radius rounds to the same expanded
-                // hex mask as the profile we already tested.
-                if (clearanceAttempt > 0 &&
-                    ProfilesUseSameTraversalMask(candidateProfile, appliedProfile))
+        // Spends a bounded amount of this frame predicting route alternatives.
+        // A valid normal route commits immediately; recovery alternatives compare ETA.
+        private void AdvancePendingRoutePlanning()
+        {
+            if (!hasPendingPlanning)
+            {
+                return;
+            }
+
+            pendingPlanFrames++;
+            System.Diagnostics.Stopwatch frameBudget =
+                System.Diagnostics.Stopwatch.StartNew();
+
+            while (hasPendingPlanning &&
+                   frameBudget.Elapsed.TotalMilliseconds <
+                   Mathf.Max(0.1f, planningBudgetMillisecondsPerFrame))
+            {
+                if (pendingPrediction.IsRunning)
+                {
+                    int startSteps = pendingPrediction.StepsExecuted;
+                    pendingPrediction.Advance(96);
+                    pendingPhysicalSteps +=
+                        pendingPrediction.StepsExecuted - startSteps;
+
+                    if (pendingPrediction.IsRunning)
+                    {
+                        continue;
+                    }
+
+                    RouteGeometryCandidate completed =
+                        pendingCandidates[pendingCandidateIndex - 1];
+
+                    if (candidateRoute.IsValid)
+                    {
+                        bool severeTurn =
+                            HasSevereTurnConstraint(candidateRoute);
+
+                        if (!completed.IsRecovery && !severeTurn)
+                        {
+                            CommitPendingRoute(candidateRoute, completed);
+                            return;
+                        }
+
+                        RememberBestPendingRoute(candidateRoute, completed);
+                    }
+                    else if (candidateRoute.FailureReason !=
+                             ShipRouteFailureReason.SlowerThanBestArrival)
+                    {
+                        pendingLastFailureReason = candidateRoute.FailureReason;
+                        pendingLastFailurePosition = candidateRoute.FailurePosition;
+                        pendingLastFailureTimeSeconds =
+                            candidateRoute.FailureTimeSeconds;
+                    }
+                }
+
+                if (pendingCandidateIndex < pendingCandidates.Count)
+                {
+                    BeginNextPendingPrediction();
+                    continue;
+                }
+
+                if (TryQueueNextNormalGeometryCandidate())
                 {
                     continue;
                 }
 
-                // Clearance retries only change node walkability. The tile-center
-                // graph and visible debug map do not need rebuilding during testing.
-                if (!ProfilesUseSameTraversalMask(candidateProfile, appliedProfile))
+                if (!pendingRecoveryQueued)
                 {
-                    pathService.ApplyTraversalProfile(map, candidateProfile);
-                    appliedProfile = candidateProfile;
-                }
+                    pendingRecoveryQueued = true;
+                    QueueRecoveryCandidates();
 
-                geometricPathAttempts++;
-
-                if (!TryBuildFullGeometryRoute(true))
-                {
-                    geometryPathUnavailable = true;
-                    break;
-                }
-
-                float previousTurnSpeedScale = -1f;
-
-                for (int maneuverAttempt = 0;
-                     maneuverAttempt < maneuverAttempts && !stopSearching;
-                     maneuverAttempt++)
-                {
-                    float constrainedTurnSpeedScale = maneuverAttempt == 0
-                        ? 1f
-                        : Mathf.Max(
-                            minimumConstrainedTurnSpeedScale,
-                            1f - maneuverAttempt *
-                            Mathf.Max(0.01f, constrainedTurnSpeedScaleStep));
-
-                    if (Mathf.Abs(
-                        constrainedTurnSpeedScale -
-                        previousTurnSpeedScale) <= 0.0001f)
+                    if (pendingCandidateIndex < pendingCandidates.Count)
                     {
                         continue;
                     }
-
-                    previousTurnSpeedScale = constrainedTurnSpeedScale;
-                    physicalPredictionAttempts++;
-
-                    KinematicRoutePlanner.BuildRoute(
-                        fullWorldPath,
-                        shipAgent.CurrentMovementState,
-                        shipAgent.MovementProfile,
-                        shipAgent.SpeedMode,
-                        map,
-                        requiredBlockedMask,
-                        Time.fixedDeltaTime,
-                        shipAgent.LookAheadDistance,
-                        shipAgent.WaypointReachDistance,
-                        constrainedTurnSpeedScale,
-                        candidateRoute,
-                        bestArrivalTimeSeconds);
-
-                    if (!candidateRoute.IsValid)
-                    {
-                        if (candidateRoute.FailureReason ==
-                            ShipRouteFailureReason.SlowerThanBestArrival)
-                        {
-                            continue;
-                        }
-
-                        lastFailureReason = candidateRoute.FailureReason;
-                        lastFailurePosition = candidateRoute.FailurePosition;
-                        lastFailureTimeSeconds = candidateRoute.FailureTimeSeconds;
-
-                        // A wider path or progressively slower confined turn may
-                        // repair clipping or an arrival that never settles. Data
-                        // and guidance-construction failures cannot.
-                        if (candidateRoute.FailureReason !=
-                                ShipRouteFailureReason.PredictedTrackBlocked &&
-                            candidateRoute.FailureReason !=
-                                ShipRouteFailureReason.PredictionBudgetExceeded)
-                        {
-                            stopSearching = true;
-                            break;
-                        }
-
-                        continue;
-                    }
-
-                    bool arrivesSooner =
-                        candidateRoute.EstimatedTimeSeconds <
-                        bestArrivalTimeSeconds - 0.0001f;
-
-                    bool equallyFastButShorter =
-                        Mathf.Abs(
-                            candidateRoute.EstimatedTimeSeconds -
-                            bestArrivalTimeSeconds) <= 0.0001f &&
-                        candidateRoute.TotalDistanceWorld <
-                        bestDistanceWorld - 0.0001f;
-
-                    if (arrivesSooner || equallyFastButShorter)
-                    {
-                        bestArrivalTimeSeconds = candidateRoute.EstimatedTimeSeconds;
-                        bestDistanceWorld = candidateRoute.TotalDistanceWorld;
-                        bestExtraClearance = extraClearance;
-                        bestTurnSpeedScale = constrainedTurnSpeedScale;
-                        bestCandidateRoute.CopyFrom(candidateRoute);
-                        bestCandidateWaypointDistances.Clear();
-                        bestCandidateWaypointDistances.AddRange(
-                            fullWorldWaypointDistances);
-                    }
                 }
-            }
 
-            // Candidate testing temporarily changed A* walkability only.
-            // Restore the committed visible profile without repainting the Tilemap.
-            if (!ProfilesUseSameTraversalMask(appliedProfile, requiredProfile))
-            {
-                pathService.ApplyTraversalProfile(map, requiredProfile);
-            }
-
-            planningStopwatch.Stop();
-
-            if (bestCandidateRoute.IsValid)
-            {
-                activeRoute.CopyFrom(bestCandidateRoute);
-                activeRouteVisibleSampleIndex = 0;
-                shipAgent.SetRoute(activeRoute);
-                activeRouteLine?.Draw(
-                    activeRoute.PredictedSamples,
-                    shipAgent.MovementProfile.cruiseSpeedKnots,
-                    shipAgent.MovementProfile.flankSpeedKnots);
-
-                activeDestination = routeWaypoints[routeWaypoints.Count - 1];
-                acceptedWaypointDistances.Clear();
-                acceptedWaypointDistances.AddRange(bestCandidateWaypointDistances);
-                RefreshWaypointMarkers();
-
-                if (!silent)
+                if (bestCandidateRoute.IsValid)
                 {
-                    LogStatus(
-                        $"Routing through {routeWaypoints.Count} waypoint(s). " +
-                        $"SafetyRadius={requiredProfile.SafetyRadiusWorld:F2}. " +
-                        $"PlanningClearance={bestExtraClearance:F2}. " +
-                        $"TightTurnSpeedScale={bestTurnSpeedScale:F2}. " +
-                        $"ETA={activeRoute.EstimatedTimeSeconds:F2}s. " +
-                        $"Distance={activeRoute.TotalDistanceWorld:F2}. " +
-                        $"PlanTime={planningStopwatch.Elapsed.TotalMilliseconds:F2}ms. " +
-                        $"GeometryTests={geometricPathAttempts}. " +
-                        $"MotionTests={physicalPredictionAttempts}.");
+                    RouteGeometryCandidate best = new RouteGeometryCandidate();
+                    best.ExtraClearance = pendingBestExtraClearance;
+                    best.TurnSpeedScale = pendingBestTurnSpeedScale;
+                    best.WaypointDistances.AddRange(
+                        bestCandidateWaypointDistances);
+                    CommitPendingRoute(bestCandidateRoute, best);
+                    return;
                 }
 
+                CompletePendingRouteFailure();
+            }
+        }
+
+        // Starts the next already-generated geometry candidate with sparse guidance.
+        private void BeginNextPendingPrediction()
+        {
+            RouteGeometryCandidate candidate =
+                pendingCandidates[pendingCandidateIndex++];
+
+            if (!KinematicRoutePlanner.BuildGuidanceCourse(
+                candidate.Geometry,
+                shipAgent.MovementProfile,
+                shipAgent.SpeedMode,
+                candidate.TurnSpeedScale,
+                candidateRoute))
+            {
+                pendingLastFailureReason = candidateRoute.FailureReason;
+                pendingLastFailurePosition = candidateRoute.FailurePosition;
+                pendingLastFailureTimeSeconds =
+                    candidateRoute.FailureTimeSeconds;
+                return;
+            }
+
+            pendingPhysicalCandidates++;
+            pendingPrediction.Begin(
+                candidateRoute,
+                shipAgent.CurrentMovementState,
+                shipAgent.MovementProfile,
+                shipAgent.SpeedMode,
+                map,
+                pendingRequiredMask,
+                Time.fixedDeltaTime,
+                shipAgent.LookAheadDistance,
+                shipAgent.WaypointReachDistance,
+                bestCandidateRoute.IsValid
+                    ? bestCandidateRoute.EstimatedTimeSeconds
+                    : float.PositiveInfinity);
+        }
+
+        // Adds A* geometry lazily only after a calm direct solution is unavailable
+        // or physically unacceptable. Wider masks ask for gentler open-water bends.
+        private bool TryQueueNextNormalGeometryCandidate()
+        {
+            int clearanceAttempts =
+                Mathf.Max(0, kinematicClearanceAttempts) + 1;
+
+            while (pendingClearanceAttempt < clearanceAttempts)
+            {
+                int attempt = pendingClearanceAttempt++;
+                float extraClearance =
+                    attempt * Mathf.Max(0f, kinematicClearanceStepWorld);
+
+                NavigationProfile candidateProfile =
+                    CreateNavigationProfile(extraClearance);
+
+                bool duplicateMask = false;
+                for (int i = 0; i < pendingNormalCandidates.Count; i++)
+                {
+                    if (!pendingNormalCandidates[i].IsDirect &&
+                        ProfilesUseSameTraversalMask(
+                            pendingNormalCandidates[i].PlanningMask.Profile,
+                            candidateProfile))
+                    {
+                        duplicateMask = true;
+                        break;
+                    }
+                }
+
+                if (duplicateMask)
+                {
+                    continue;
+                }
+
+                NavigationTraversalMask planningMask =
+                    pathService.GetTraversalMask(map, candidateProfile);
+
+                if (!TryBuildFullGeometryRoute(planningMask, true))
+                {
+                    pendingGeometryUnavailable = true;
+
+                    // Increasing clearance cannot open a path that the required
+                    // legal-water mask already cannot reach.
+                    if (attempt == 0)
+                    {
+                        pendingClearanceAttempt = clearanceAttempts;
+                    }
+
+                    continue;
+                }
+
+                QueueCurrentGeometryCandidate(
+                    planningMask,
+                    extraClearance,
+                    1f,
+                    false,
+                    false,
+                    true);
                 return true;
             }
 
-            if (!silent)
+            return false;
+        }
+
+        // Recovery evaluates progressively tighter low-speed turns only after
+        // ordinary courses failed or required extremely severe corner braking.
+        private void QueueRecoveryCandidates()
+        {
+            int attempts = Mathf.Max(0, constrainedTurnAttempts) + 1;
+
+            for (int candidateIndex = 0;
+                 candidateIndex < pendingNormalCandidates.Count;
+                 candidateIndex++)
             {
-                if (lastFailureReason == ShipRouteFailureReason.None &&
-                    geometryPathUnavailable)
+                RouteGeometryCandidate ordinary =
+                    pendingNormalCandidates[candidateIndex];
+                float previousScale = 1f;
+
+                for (int attempt = 1; attempt < attempts; attempt++)
                 {
-                    LogStatus(
-                        "No geometric path exists for the selected destination " +
-                        "using the current ship clearance. " +
-                        $"PlanTime={planningStopwatch.Elapsed.TotalMilliseconds:F2}ms. " +
-                        $"GeometryTests={geometricPathAttempts}. " +
-                        $"MotionTests={physicalPredictionAttempts}.");
+                    float scale = Mathf.Max(
+                        minimumConstrainedTurnSpeedScale,
+                        1f - attempt *
+                        Mathf.Max(0.01f, constrainedTurnSpeedScaleStep));
+
+                    if (Mathf.Abs(scale - previousScale) <= 0.0001f)
+                    {
+                        continue;
+                    }
+
+                    previousScale = scale;
+                    RouteGeometryCandidate recovery =
+                        new RouteGeometryCandidate();
+                    recovery.CopyGeometryFrom(
+                        ordinary,
+                        scale,
+                        true);
+                    pendingCandidates.Add(recovery);
                 }
-                else
+            }
+        }
+
+        private bool TryBuildDirectGeometryRoute(
+            NavigationTraversalMask requiredMask)
+        {
+            fullWorldPath.Clear();
+            fullWorldWaypointDistances.Clear();
+
+            Vector2 start = GetShipPosition();
+            fullWorldPath.Add(start);
+
+            for (int i = 0; i < routeWaypoints.Count; i++)
+            {
+                Vector2 end = routeWaypoints[i].World;
+
+                if (!RouteSegmentUtility.TryEvaluateSegment(
+                    map,
+                    requiredMask,
+                    start,
+                    end,
+                    out float highestMoveCost) ||
+                    highestMoveCost > 1.0001f)
                 {
-                    LogStatus(
-                        DescribeRouteFailure(
-                            lastFailureReason,
-                            lastFailurePosition,
-                            lastFailureTimeSeconds) +
-                        $" PlanTime={planningStopwatch.Elapsed.TotalMilliseconds:F2}ms. " +
-                        $"GeometryTests={geometricPathAttempts}. " +
-                        $"MotionTests={physicalPredictionAttempts}.");
+                    fullWorldPath.Clear();
+                    fullWorldWaypointDistances.Clear();
+                    return false;
+                }
+
+                if (Vector2.Distance(
+                    fullWorldPath[fullWorldPath.Count - 1],
+                    end) > 0.0005f)
+                {
+                    fullWorldPath.Add(end);
+                }
+
+                fullWorldWaypointDistances.Add(
+                    CalculatePolylineDistance(fullWorldPath));
+                start = end;
+            }
+
+            return fullWorldPath.Count >= 2;
+        }
+
+        private void QueueCurrentGeometryCandidate(
+            NavigationTraversalMask planningMask,
+            float extraClearance,
+            float turnSpeedScale,
+            bool isDirect,
+            bool isRecovery,
+            bool rememberNormal)
+        {
+            RouteGeometryCandidate candidate = new RouteGeometryCandidate();
+            candidate.Geometry.AddRange(fullWorldPath);
+            candidate.WaypointDistances.AddRange(fullWorldWaypointDistances);
+            candidate.PlanningMask = planningMask;
+            candidate.ExtraClearance = extraClearance;
+            candidate.TurnSpeedScale = turnSpeedScale;
+            candidate.IsDirect = isDirect;
+            candidate.IsRecovery = isRecovery;
+            pendingCandidates.Add(candidate);
+
+            if (rememberNormal)
+            {
+                pendingNormalCandidates.Add(candidate);
+            }
+        }
+
+        private bool HasSevereTurnConstraint(ShipRoute route)
+        {
+            if (route == null ||
+                shipAgent.MovementProfile == null ||
+                route.ControlPoints.Count < 3)
+            {
+                return false;
+            }
+
+            float threshold =
+                shipAgent.MovementProfile.cruiseSpeedKnots *
+                Mathf.Clamp01(severeTurnSpeedFraction);
+
+            for (int i = 1; i < route.ControlPoints.Count - 1; i++)
+            {
+                float limit = route.ControlPoints[i].SpeedLimitKnots;
+                if (limit > 0f && limit < threshold)
+                {
+                    return true;
                 }
             }
 
             return false;
+        }
+
+        private void RememberBestPendingRoute(
+            ShipRoute route,
+            RouteGeometryCandidate candidate)
+        {
+            bool arrivesSooner =
+                !bestCandidateRoute.IsValid ||
+                route.EstimatedTimeSeconds <
+                bestCandidateRoute.EstimatedTimeSeconds - 0.0001f;
+
+            bool equallyFastButShorter =
+                bestCandidateRoute.IsValid &&
+                Mathf.Abs(
+                    route.EstimatedTimeSeconds -
+                    bestCandidateRoute.EstimatedTimeSeconds) <= 0.0001f &&
+                route.TotalDistanceWorld <
+                bestCandidateRoute.TotalDistanceWorld - 0.0001f;
+
+            if (!arrivesSooner && !equallyFastButShorter)
+            {
+                return;
+            }
+
+            bestCandidateRoute.CopyFrom(route);
+            bestCandidateWaypointDistances.Clear();
+            bestCandidateWaypointDistances.AddRange(
+                candidate.WaypointDistances);
+            pendingBestExtraClearance = candidate.ExtraClearance;
+            pendingBestTurnSpeedScale = candidate.TurnSpeedScale;
+        }
+
+        private void CommitPendingRoute(
+            ShipRoute route,
+            RouteGeometryCandidate candidate)
+        {
+            pendingPlanningStopwatch?.Stop();
+            activeRoute.CopyFrom(route);
+            activeRouteVisibleSampleIndex = 0;
+            shipAgent.SetRoute(activeRoute);
+            activeRouteLine?.Draw(
+                activeRoute.PredictedSamples,
+                shipAgent.MovementProfile.cruiseSpeedKnots,
+                shipAgent.MovementProfile.flankSpeedKnots);
+
+            activeDestination = routeWaypoints[routeWaypoints.Count - 1];
+            acceptedWaypointDistances.Clear();
+            acceptedWaypointDistances.AddRange(candidate.WaypointDistances);
+            committedRouteWaypoints.Clear();
+            committedRouteWaypoints.AddRange(routeWaypoints);
+            RefreshWaypointMarkers();
+
+            if (!pendingPlanSilent)
+            {
+                LogStatus(
+                    $"Routing through {routeWaypoints.Count} waypoint(s). " +
+                    $"SafetyRadius={pendingRequiredProfile.SafetyRadiusWorld:F2}. " +
+                    $"PlanningClearance={candidate.ExtraClearance:F2}. " +
+                    $"TightTurnSpeedScale={candidate.TurnSpeedScale:F2}. " +
+                    $"ETA={activeRoute.EstimatedTimeSeconds:F2}s. " +
+                    $"Distance={activeRoute.TotalDistanceWorld:F2}. " +
+                    $"PlanWallTime={pendingPlanningStopwatch.Elapsed.TotalMilliseconds:F2}ms. " +
+                    $"PlanFrames={pendingPlanFrames}. " +
+                    $"DirectTested={pendingDirectTested}. " +
+                    $"AStarLegs={pendingAStarLegs}. " +
+                    $"PhysicalCandidates={pendingPhysicalCandidates}. " +
+                    $"PhysicalSteps={pendingPhysicalSteps}. " +
+                    $"MaskCacheHits={pathService.TraversalMaskCacheHits - pendingMaskHitsAtStart}. " +
+                    $"MaskCacheMisses={pathService.TraversalMaskCacheMisses - pendingMaskMissesAtStart}. " +
+                    $"RenderBuildTime={activeRouteLine?.LastBuildMilliseconds ?? 0d:F2}ms.");
+            }
+
+            hasPendingPlanning = false;
+            pendingCandidates.Clear();
+            pendingNormalCandidates.Clear();
+        }
+
+        private void CompletePendingRouteFailure()
+        {
+            pendingPlanningStopwatch?.Stop();
+
+            if (!pendingPlanSilent)
+            {
+                string reason =
+                    pendingLastFailureReason == ShipRouteFailureReason.None &&
+                    pendingGeometryUnavailable
+                        ? "No geometric path exists for the selected destination using the current ship clearance."
+                        : DescribeRouteFailure(
+                            pendingLastFailureReason,
+                            pendingLastFailurePosition,
+                            pendingLastFailureTimeSeconds);
+
+                LogStatus(
+                    reason +
+                    $" PlanWallTime={pendingPlanningStopwatch.Elapsed.TotalMilliseconds:F2}ms. " +
+                    $"PlanFrames={pendingPlanFrames}. " +
+                    $"DirectTested={pendingDirectTested}. " +
+                    $"AStarLegs={pendingAStarLegs}. " +
+                    $"PhysicalCandidates={pendingPhysicalCandidates}. " +
+                    $"PhysicalSteps={pendingPhysicalSteps}.");
+            }
+
+            routeWaypoints.Clear();
+            routeWaypoints.AddRange(committedRouteWaypoints);
+            RefreshWaypointMarkers();
+            hasPendingPlanning = false;
+            pendingCandidates.Clear();
+            pendingNormalCandidates.Clear();
+        }
+
+        private void CancelPendingRoutePlanning()
+        {
+            if (hasPendingPlanning)
+            {
+                pendingPlanningStopwatch?.Stop();
+            }
+
+            hasPendingPlanning = false;
+            pendingCandidates.Clear();
+            pendingNormalCandidates.Clear();
         }
 
         // Turns physical route rejection into useful sandbox feedback.
@@ -794,7 +1100,9 @@ namespace OA.Presentation.Debug
         }
 
         // Stitches A* legs into one geometric candidate before the movement model evaluates it.
-        private bool TryBuildFullGeometryRoute(bool silent)
+        private bool TryBuildFullGeometryRoute(
+            NavigationTraversalMask planningMask,
+            bool silent)
         {
             Vector2 shipPosition = GetShipPosition();
             Vector2Int startCell;
@@ -802,10 +1110,12 @@ namespace OA.Presentation.Debug
             if (!gridPresenter.TryWorldToCell(shipPosition, out startCell) &&
                 !map.TryWorldToCell(shipPosition, out startCell))
             {
-                startCell = FindClosestTraversableCell(ClampCellToBounds(guaranteedSpawnCell));
+                startCell = FindClosestTraversableCell(
+                    ClampCellToBounds(guaranteedSpawnCell),
+                    planningMask);
             }
 
-            startCell = FindClosestTraversableCell(startCell);
+            startCell = FindClosestTraversableCell(startCell, planningMask);
             fullWorldPath.Clear();
             fullWorldWaypointDistances.Clear();
 
@@ -815,9 +1125,16 @@ namespace OA.Presentation.Debug
             for (int i = 0; i < routeWaypoints.Count; i++)
             {
                 Waypoint waypoint = routeWaypoints[i];
-                Vector2Int legGoalCell = FindClosestTraversableCell(waypoint.Cell);
+                Vector2Int legGoalCell = FindClosestTraversableCell(
+                    waypoint.Cell,
+                    planningMask);
 
-                bool foundPath = pathService.TryFindPath(legStartCell, legGoalCell, cellPath);
+                pendingAStarLegs++;
+                bool foundPath = pathService.TryFindPath(
+                    legStartCell,
+                    legGoalCell,
+                    planningMask,
+                    cellPath);
                 if (!foundPath || cellPath.Count == 0)
                 {
                     if (!silent)
@@ -830,7 +1147,7 @@ namespace OA.Presentation.Debug
 
                 PathRouteSmoother.BuildRoute(
                     map,
-                    pathService.LastAppliedBlockedMask,
+                    planningMask,
                     cellPath,
                     legStartWorld,
                     waypoint.World,
@@ -900,12 +1217,18 @@ namespace OA.Presentation.Debug
             }
 
             activeDestination = null;
-            routeWaypoints.Clear();
+            committedRouteWaypoints.Clear();
             acceptedWaypointDistances.Clear();
             activeRoute.Clear();
             activeRouteVisibleSampleIndex = 0;
             candidateRoute.Clear();
             activeRouteLine?.Clear();
+
+            if (!hasPendingPlanning)
+            {
+                routeWaypoints.Clear();
+            }
+
             UpdateQueuedRouteLine();
             RefreshWaypointMarkers();
 
@@ -939,6 +1262,8 @@ namespace OA.Presentation.Debug
 
             if (removedAny)
             {
+                committedRouteWaypoints.Clear();
+                committedRouteWaypoints.AddRange(routeWaypoints);
                 RefreshWaypointMarkers();
             }
         }
@@ -946,12 +1271,20 @@ namespace OA.Presentation.Debug
         // Finds the nearest currently traversable cell to a requested target.
         private Vector2Int FindClosestTraversableCell(Vector2Int desired)
         {
+            return FindClosestTraversableCell(desired, displayedTraversalMask);
+        }
+
+        // Candidate corridors may request wider clearance without changing the visible legal-water mask.
+        private Vector2Int FindClosestTraversableCell(
+            Vector2Int desired,
+            NavigationTraversalMask traversalMask)
+        {
             if (!map.InBounds(desired.x, desired.y))
             {
                 desired = new Vector2Int(map.Width / 2, map.Height / 2);
             }
 
-            if (IsTraversableForSafety(desired))
+            if (IsTraversableForSafety(desired, traversalMask))
             {
                 return desired;
             }
@@ -978,7 +1311,7 @@ namespace OA.Presentation.Debug
                         continue;
                     }
 
-                    if (IsTraversableForSafety(next))
+                    if (IsTraversableForSafety(next, traversalMask))
                     {
                         return next;
                     }
@@ -993,19 +1326,24 @@ namespace OA.Presentation.Debug
         // Checks map bounds plus the path service safety mask so UI and routing agree.
         private bool IsTraversableForSafety(Vector2Int cell)
         {
+            return IsTraversableForSafety(cell, displayedTraversalMask);
+        }
+
+        private bool IsTraversableForSafety(
+            Vector2Int cell,
+            NavigationTraversalMask traversalMask)
+        {
             if (!map.InBounds(cell.x, cell.y))
             {
                 return false;
             }
 
-            bool[] mask = pathService.LastAppliedBlockedMask;
-            if (mask == null || mask.Length == 0)
+            if (traversalMask == null)
             {
                 return map.IsWalkable(cell.x, cell.y);
             }
 
-            int index = map.GetIndex(cell.x, cell.y);
-            return index >= 0 && index < mask.Length && !mask[index];
+            return !traversalMask.IsBlocked(cell);
         }
 
         // Draws the remaining active ship route into the active LineRenderer.
@@ -1301,6 +1639,34 @@ namespace OA.Presentation.Debug
             {
                 Cell = cell;
                 World = world;
+            }
+        }
+
+        // Generated geometry is cheap to retain while alternative exact
+        // physical predictions are advanced over subsequent frames.
+        private sealed class RouteGeometryCandidate
+        {
+            public readonly List<Vector2> Geometry = new List<Vector2>(512);
+            public readonly List<float> WaypointDistances = new List<float>(32);
+
+            public NavigationTraversalMask PlanningMask;
+            public float ExtraClearance;
+            public float TurnSpeedScale;
+            public bool IsDirect;
+            public bool IsRecovery;
+
+            public void CopyGeometryFrom(
+                RouteGeometryCandidate source,
+                float turnSpeedScale,
+                bool isRecovery)
+            {
+                Geometry.AddRange(source.Geometry);
+                WaypointDistances.AddRange(source.WaypointDistances);
+                PlanningMask = source.PlanningMask;
+                ExtraClearance = source.ExtraClearance;
+                TurnSpeedScale = turnSpeedScale;
+                IsDirect = source.IsDirect;
+                IsRecovery = isRecovery;
             }
         }
     }

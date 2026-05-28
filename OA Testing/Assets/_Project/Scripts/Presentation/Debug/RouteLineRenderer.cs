@@ -10,8 +10,6 @@ namespace OA.Presentation.Debug
 {
     public sealed class RouteLineRenderer : MonoBehaviour
     {
-        private const int MaximumGradientKeys = 8;
-
         [SerializeField] private LineRenderer segmentPrefab;
 
 
@@ -23,18 +21,29 @@ namespace OA.Presentation.Debug
 
         [SerializeField, Min(0.001f)] private float width = 0.05f;
 
-        private readonly List<LineRenderer> visibleSegments = new List<LineRenderer>(256);
+        private readonly List<Vector3> vertices = new List<Vector3>(2048);
+        private readonly List<Color> colors = new List<Color>(2048);
+        private readonly List<Vector2> uv = new List<Vector2>(2048);
+        private readonly List<int> triangles = new List<int>(3072);
+
+        private Mesh routeMesh;
+        private MeshRenderer routeRenderer;
+
+        public double LastBuildMilliseconds { get; private set; }
 
         private void Awake()
         {
+            EnsureMeshOutput();
+
             if (segmentPrefab != null)
             {
+                // The assigned LineRenderer remains the style/material template.
+                // Geometry is drawn by one reusable mesh instead of cloned chunks.
                 segmentPrefab.gameObject.SetActive(false);
             }
         }
 
-        // Splits prediction into short gradient runs because Unity accepts eight
-        // gradient keys. Each retained physical sample receives its real speed color.
+        // Draws the entire prediction once when a new route is accepted.
         public void Draw(
             IReadOnlyList<ShipRouteSample> samples,
             float cruiseSpeedKnots,
@@ -61,9 +70,9 @@ namespace OA.Presentation.Debug
             float cruiseSpeedKnots,
             float flankSpeedKnots)
         {
-            if (segmentPrefab == null)
+            if (!EnsureMeshOutput())
             {
-                return; // Can't draw without a prefab.
+                return;
             }
 
             if (samples == null ||
@@ -71,129 +80,150 @@ namespace OA.Presentation.Debug
                 firstVisibleSampleIndex >= samples.Count - 1)
             {
                 Clear();
-                return; // Not enough points to draw a line.
+                return;
             }
 
-            int usedLines = 0;
-            int groupStart = Mathf.Clamp(
+            System.Diagnostics.Stopwatch timer =
+                System.Diagnostics.Stopwatch.StartNew();
+
+            vertices.Clear();
+            colors.Clear();
+            uv.Clear();
+            triangles.Clear();
+
+            int first = Mathf.Clamp(
                 firstVisibleSampleIndex,
                 0,
                 samples.Count - 2);
 
-            while (groupStart < samples.Count - 1)
+            float accumulatedDistance = 0f;
+            Vector2 previousPoint = leadingPosition;
+
+            for (int i = first; i < samples.Count; i++)
             {
-                int groupEnd = Mathf.Min(
-                    samples.Count - 1,
-                    groupStart + MaximumGradientKeys - 1);
-
-                DrawSpeedGroup(
-                    usedLines,
-                    samples,
-                    groupStart,
-                    groupEnd,
-                    usedLines == 0,
-                    leadingPosition,
-                    cruiseSpeedKnots,
-                    flankSpeedKnots);
-
-                usedLines++;
-                groupStart = groupEnd;
-            }
-
-            DestroySegmentsAfter(usedLines);
-        }
-
-        public void Clear()
-        {
-            DestroySegmentsAfter(0);
-        }
-
-        private void DrawSpeedGroup(
-            int poolIndex,
-            IReadOnlyList<ShipRouteSample> samples,
-            int startIndex,
-            int endIndex,
-            bool replaceStartPosition,
-            Vector2 startPosition,
-            float cruiseSpeedKnots,
-            float flankSpeedKnots)
-        {
-            if (endIndex <= startIndex)
-            {
-                return; // Not enough points to draw a line.
-            }
-
-            EnsureSegments(poolIndex + 1);
-
-            LineRenderer line = visibleSegments[poolIndex];
-
-            line.gameObject.SetActive(true);
-            line.positionCount = endIndex - startIndex + 1;
-            line.startWidth = width;
-            line.endWidth = width;
-            line.colorGradient = BuildSpeedGradient(
-                samples,
-                startIndex,
-                endIndex,
-                cruiseSpeedKnots,
-                flankSpeedKnots);
-
-            for (int i = startIndex; i <= endIndex; i++)
-            {
-                Vector2 p = replaceStartPosition && i == startIndex
-                    ? startPosition
+                Vector2 point = i == first
+                    ? leadingPosition
                     : samples[i].Position;
 
-                line.SetPosition(i - startIndex, new Vector3(p.x, p.y, 0f));
-            }
-        }
-
-        private Gradient BuildSpeedGradient(
-            IReadOnlyList<ShipRouteSample> samples,
-            int startIndex,
-            int endIndex,
-            float cruiseSpeedKnots,
-            float flankSpeedKnots)
-        {
-            int count = endIndex - startIndex + 1;
-            float totalDistance = 0f;
-
-            for (int i = startIndex + 1; i <= endIndex; i++)
-            {
-                totalDistance += Vector2.Distance(
-                    samples[i - 1].Position,
-                    samples[i].Position);
-            }
-
-            totalDistance = Mathf.Max(0.0001f, totalDistance);
-
-            GradientColorKey[] colorKeys = new GradientColorKey[count];
-            GradientAlphaKey[] alphaKeys = new GradientAlphaKey[count];
-            float distance = 0f;
-
-            for (int i = startIndex; i <= endIndex; i++)
-            {
-                if (i > startIndex)
+                if (i > first)
                 {
-                    distance += Vector2.Distance(
-                        samples[i - 1].Position,
-                        samples[i].Position);
+                    accumulatedDistance += Vector2.Distance(
+                        previousPoint,
+                        point);
                 }
 
-                float time = Mathf.Clamp01(distance / totalDistance);
+                Vector2 before = i == first
+                    ? point
+                    : i == first + 1
+                        ? leadingPosition
+                        : samples[i - 1].Position;
+
+                Vector2 after = i == samples.Count - 1
+                    ? point
+                    : samples[i + 1].Position;
+
+                Vector2 tangent = after - before;
+                if (tangent.sqrMagnitude <= 0.000001f)
+                {
+                    tangent = Vector2.right;
+                }
+
+                tangent.Normalize();
+                Vector2 normal = new Vector2(-tangent.y, tangent.x);
+                Vector2 offset = normal * (width * 0.5f);
                 Color color = GetSpeedColor(
                     samples[i].SpeedKnots,
                     cruiseSpeedKnots,
                     flankSpeedKnots);
 
-                int keyIndex = i - startIndex;
-                colorKeys[keyIndex] = new GradientColorKey(color, time);
-                alphaKeys[keyIndex] = new GradientAlphaKey(color.a, time);
+                AddVertex(point - offset, color, 0f, accumulatedDistance);
+                AddVertex(point + offset, color, 1f, accumulatedDistance);
+
+                if (i > first)
+                {
+                    int index = vertices.Count - 4;
+                    triangles.Add(index);
+                    triangles.Add(index + 2);
+                    triangles.Add(index + 1);
+                    triangles.Add(index + 1);
+                    triangles.Add(index + 2);
+                    triangles.Add(index + 3);
+                }
+
+                previousPoint = point;
             }
 
-            Gradient gradient = new Gradient();
-            gradient.SetKeys(colorKeys, alphaKeys);
-            return gradient;
+            routeMesh.Clear();
+            routeMesh.SetVertices(vertices);
+            routeMesh.SetColors(colors);
+            routeMesh.SetUVs(0, uv);
+            routeMesh.SetTriangles(triangles, 0);
+            routeMesh.RecalculateBounds();
+            routeRenderer.gameObject.SetActive(vertices.Count >= 4);
+
+            timer.Stop();
+            LastBuildMilliseconds = timer.Elapsed.TotalMilliseconds;
+        }
+
+        public void Clear()
+        {
+            if (routeMesh != null)
+            {
+                routeMesh.Clear();
+            }
+
+            if (routeRenderer != null)
+            {
+                routeRenderer.gameObject.SetActive(false);
+            }
+
+            LastBuildMilliseconds = 0d;
+        }
+
+        private bool EnsureMeshOutput()
+        {
+            if (routeRenderer != null && routeMesh != null)
+            {
+                return true;
+            }
+
+            if (segmentPrefab == null)
+            {
+                return false; // Can't draw without a material/style template.
+            }
+
+            GameObject routeObject = new GameObject("RouteMesh");
+            routeObject.transform.SetParent(transform, false);
+
+            MeshFilter meshFilter = routeObject.AddComponent<MeshFilter>();
+            routeRenderer = routeObject.AddComponent<MeshRenderer>();
+            routeRenderer.sharedMaterial = segmentPrefab.sharedMaterial;
+            routeRenderer.sortingLayerID = segmentPrefab.sortingLayerID;
+            routeRenderer.sortingOrder = segmentPrefab.sortingOrder;
+
+            routeMesh = new Mesh
+            {
+                name = "Predicted Ship Route Mesh"
+            };
+
+            routeMesh.MarkDynamic();
+            meshFilter.sharedMesh = routeMesh;
+            routeObject.SetActive(false);
+            return true;
+        }
+
+        private void AddVertex(
+            Vector2 worldPosition,
+            Color color,
+            float acrossLine,
+            float alongLine)
+        {
+            Vector3 local = transform.InverseTransformPoint(
+                new Vector3(worldPosition.x, worldPosition.y, 0f));
+
+            vertices.Add(local);
+            colors.Add(color);
+            uv.Add(new Vector2(acrossLine, alongLine));
         }
 
         private Color GetSpeedColor(
@@ -227,24 +257,11 @@ namespace OA.Presentation.Debug
                 Mathf.InverseLerp(cruise, flank, speedKnots));
         }
 
-        // Adds visible chunks only when the remaining route currently needs them.
-        private void EnsureSegments(int count)
+        private void OnDestroy()
         {
-            while (visibleSegments.Count < count)
+            if (routeMesh != null)
             {
-                LineRenderer segment = Instantiate(segmentPrefab, transform);
-                segment.gameObject.SetActive(false);
-                visibleSegments.Add(segment);
-            }
-        }
-
-        // Generated chunks are discarded as soon as their portion of the route is consumed.
-        private void DestroySegmentsAfter(int retainedCount)
-        {
-            for (int i = visibleSegments.Count - 1; i >= retainedCount; i--)
-            {
-                Destroy(visibleSegments[i].gameObject);
-                visibleSegments.RemoveAt(i);
+                Destroy(routeMesh);
             }
         }
     }

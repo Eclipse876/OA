@@ -32,7 +32,7 @@ namespace OA.Simulation.Movement
             MovementProfileDefinition profile,
             MovementSpeedMode speedMode,
             HexMapRuntime map,
-            bool[] blockedMask,
+            NavigationTraversalMask traversalMask,
             float fixedDeltaTime,
             float lookAheadDistance,
             float arrivalDistance,
@@ -45,6 +45,43 @@ namespace OA.Simulation.Movement
                 return;
             }
 
+            if (!BuildGuidanceCourse(
+                geometryPath,
+                profile,
+                speedMode,
+                constrainedTurnSpeedScale,
+                routeOut))
+            {
+                return;
+            }
+
+            PredictPhysicalRoute(
+                initialState,
+                profile,
+                speedMode,
+                map,
+                traversalMask,
+                fixedDeltaTime,
+                lookAheadDistance,
+                arrivalDistance,
+                routeOut,
+                maximumUsefulArrivalTimeSeconds);
+        }
+
+        // Builds sparse steering and speed constraints without running physical validation.
+        // ShipRoutePrediction uses this entry point when a candidate is evaluated over frames.
+        public static bool BuildGuidanceCourse(
+            IReadOnlyList<Vector2> geometryPath,
+            MovementProfileDefinition profile,
+            MovementSpeedMode speedMode,
+            float constrainedTurnSpeedScale,
+            ShipRoute routeOut)
+        {
+            if (routeOut == null)
+            {
+                return false;
+            }
+
             routeOut.Clear();
 
             if (geometryPath == null ||
@@ -53,10 +90,12 @@ namespace OA.Simulation.Movement
             {
                 routeOut.Reject(
                     ShipRouteFailureReason.InvalidRequest,
-                    initialState.Position,
+                    geometryPath != null && geometryPath.Count > 0
+                        ? geometryPath[0]
+                        : Vector2.zero,
                     0f);
 
-                return;
+                return false;
             }
 
             BuildGuidanceRoute(
@@ -70,23 +109,13 @@ namespace OA.Simulation.Movement
             {
                 routeOut.Reject(
                     ShipRouteFailureReason.NoGuidanceCourse,
-                    initialState.Position,
+                    geometryPath[0],
                     0f);
 
-                return;
+                return false;
             }
 
-            PredictPhysicalRoute(
-                initialState,
-                profile,
-                speedMode,
-                map,
-                blockedMask,
-                fixedDeltaTime,
-                lookAheadDistance,
-                arrivalDistance,
-                routeOut,
-                maximumUsefulArrivalTimeSeconds);
+            return true;
         }
 
         // Colors and speed limits originate on the geometry route. They are private
@@ -120,73 +149,123 @@ namespace OA.Simulation.Movement
                 cruiseSpeedKnots,
                 constrainedTurnSpeedScale);
 
-            float sampleStep = CalculateSampleStep(profile);
+            // Only meaningful geometry corners become steering constraints.
+            // Speed braking is evaluated continuously by CalculateAllowedSpeedKnots,
+            // so long straight legs stay cheap instead of becoming hundreds of points.
+            for (int i = 0; i < geometryPath.Count; i++)
+            {
+                bool finalPoint = i == geometryPath.Count - 1;
+                float speedLimitKnots = finalPoint
+                    ? 0f
+                    : pointSpeedLimits[i];
 
+                RouteSegmentIntent intent = DetermineSegmentIntent(
+                    speedMode,
+                    speedLimitKnots > 0f ? speedLimitKnots : targetSpeedKnots,
+                    cruiseSpeedKnots,
+                    speedLimitKnots > 0f
+                        ? SpeedLimiter.Turn
+                        : finalPoint
+                            ? SpeedLimiter.FinalStop
+                            : SpeedLimiter.None);
+
+                routeOut.ControlPoints.Add(new ShipRoutePoint(
+                    geometryPath[i],
+                    distances[i],
+                    speedLimitKnots,
+                    intent));
+            }
+        }
+
+        // Evaluates braking for upcoming corner constraints and the final stopping point
+        // at the current progress, avoiding densely sampled guidance on long straight legs.
+        public static float CalculateAllowedSpeedKnots(
+            IReadOnlyList<ShipRoutePoint> course,
+            float progressWorld,
+            MovementSpeedMode speedMode,
+            MovementProfileDefinition profile,
+            out RouteSegmentIntent intent)
+        {
+            intent = RouteSegmentIntent.Cruise;
+
+            if (course == null || course.Count < 2 || profile == null)
+            {
+                return 0f;
+            }
+
+            float targetSpeedKnots = ShipKinematicUtility.GetTargetSpeedKnots(
+                speedMode,
+                profile);
+
+            float cruiseSpeedKnots = Mathf.Max(0f, profile.cruiseSpeedKnots);
             float decelerationWorld =
                 MovementMath.KnotsPerSecondToWorldUnitsPerSecondSquared(
                     profile.decelerationKnotsPerSecond,
                     profile.metersPerWorldUnit);
 
-            float sampledDistance = 0f;
-            int nextGeometryPoint = 1;
+            float allowedSpeedKnots = targetSpeedKnots;
+            SpeedLimiter limiter = SpeedLimiter.None;
 
-            // Regular speed samples make steering smooth. Original geometry
-            // vertices are also inserted exactly so intermediate user waypoints
-            // cannot disappear between two sample intervals.
-            while (sampledDistance < totalDistance ||
-                   nextGeometryPoint < geometryPath.Count - 1)
+            for (int i = 1; i < course.Count - 1; i++)
             {
-                float vertexDistance = nextGeometryPoint < geometryPath.Count - 1
-                    ? distances[nextGeometryPoint]
-                    : float.PositiveInfinity;
+                float limit = course[i].SpeedLimitKnots;
 
-                float distance = Mathf.Min(sampledDistance, vertexDistance);
-
-                Vector2 position = GetPositionAtDistance(
-                    geometryPath,
-                    distances,
-                    distance);
-
-                float plannedSpeed = CalculatePlannedSpeedAtDistance(
-                    distance,
-                    totalDistance,
-                    distances,
-                    pointSpeedLimits,
-                    targetSpeedKnots,
-                    decelerationWorld,
-                    profile,
-                    out SpeedLimiter limiter);
-
-                RouteSegmentIntent intent = DetermineSegmentIntent(
-                    speedMode,
-                    plannedSpeed,
-                    cruiseSpeedKnots,
-                    limiter);
-
-                routeOut.ControlPoints.Add(new ShipRoutePoint(
-                    position,
-                    distance,
-                    plannedSpeed,
-                    intent));
-
-                if (Mathf.Abs(distance - sampledDistance) <= 0.0001f)
+                if (limit <= 0f ||
+                    course[i].DistanceFromStartWorld < progressWorld)
                 {
-                    sampledDistance += sampleStep;
+                    continue;
                 }
 
-                if (Mathf.Abs(distance - vertexDistance) <= 0.0001f)
+                float distanceToTurn =
+                    course[i].DistanceFromStartWorld - progressWorld;
+
+                float limitWorld = MovementMath.KnotsToWorldUnitsPerSecond(
+                    limit,
+                    profile.metersPerWorldUnit);
+
+                float safeWorld = Mathf.Sqrt(
+                    limitWorld * limitWorld +
+                    2f * decelerationWorld * distanceToTurn);
+
+                float safeKnots = MovementMath.WorldUnitsPerSecondToKnots(
+                    safeWorld,
+                    profile.metersPerWorldUnit);
+
+                if (safeKnots < allowedSpeedKnots)
                 {
-                    nextGeometryPoint++;
+                    allowedSpeedKnots = safeKnots;
+                    limiter = SpeedLimiter.Turn;
                 }
             }
 
-            Vector2 finalPosition = geometryPath[geometryPath.Count - 1];
+            float totalDistance =
+                course[course.Count - 1].DistanceFromStartWorld;
 
-            routeOut.ControlPoints.Add(new ShipRoutePoint(
-                finalPosition,
-                totalDistance,
+            float remainingToFinal = Mathf.Max(
                 0f,
-                RouteSegmentIntent.Stop));
+                totalDistance - progressWorld - profile.stoppingDistance);
+
+            float finalSafeWorld = Mathf.Sqrt(
+                2f * decelerationWorld * remainingToFinal);
+
+            float finalSafeKnots = MovementMath.WorldUnitsPerSecondToKnots(
+                finalSafeWorld,
+                profile.metersPerWorldUnit);
+
+            if (finalSafeKnots < allowedSpeedKnots)
+            {
+                allowedSpeedKnots = finalSafeKnots;
+                limiter = SpeedLimiter.FinalStop;
+            }
+
+            allowedSpeedKnots = Mathf.Max(0f, allowedSpeedKnots);
+            intent = DetermineSegmentIntent(
+                speedMode,
+                allowedSpeedKnots,
+                cruiseSpeedKnots,
+                limiter);
+
+            return allowedSpeedKnots;
         }
 
         // Runs the movement model forward from the ship's current rudder, yaw,
@@ -196,7 +275,7 @@ namespace OA.Simulation.Movement
             MovementProfileDefinition profile,
             MovementSpeedMode speedMode,
             HexMapRuntime map,
-            bool[] blockedMask,
+            NavigationTraversalMask traversalMask,
             float fixedDeltaTime,
             float lookAheadDistance,
             float arrivalDistance,
@@ -228,6 +307,8 @@ namespace OA.Simulation.Movement
                     routeOut.ControlPoints,
                     ref followState,
                     speedMode,
+                    profile,
+                    map,
                     lookAheadDistance,
                     arrivalDistance,
                     step == 0,
@@ -239,9 +320,9 @@ namespace OA.Simulation.Movement
                     profile,
                     dt);
 
-                if (!IsPredictedSegmentTraversable(
+                if (!RouteSegmentUtility.IsSegmentTraversable(
                     map,
-                    blockedMask,
+                    traversalMask,
                     simulatedState.Position,
                     nextState.Position))
                 {
@@ -325,63 +406,6 @@ namespace OA.Simulation.Movement
                 speedKnots,
                 speedLimitKnots,
                 intent));
-        }
-
-        // Samples every predicted movement slice against the same blocked mask A* used.
-        private static bool IsPredictedSegmentTraversable(
-            HexMapRuntime map,
-            bool[] blockedMask,
-            Vector2 a,
-            Vector2 b)
-        {
-            if (map == null)
-            {
-                return true;
-            }
-
-            float distance = Vector2.Distance(a, b);
-            float sampleStep = Mathf.Max(0.02f, map.CellSize * 0.12f);
-            int samples = Mathf.Max(1, Mathf.CeilToInt(distance / sampleStep));
-
-            for (int i = 0; i <= samples; i++)
-            {
-                float t = i / (float)samples;
-                Vector2 position = Vector2.Lerp(a, b, t);
-
-                if (!map.TryWorldToCell(position, out Vector2Int cell))
-                {
-                    return false;
-                }
-
-                if (!IsTraversable(map, blockedMask, cell))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        private static bool IsTraversable(
-            HexMapRuntime map,
-            bool[] blockedMask,
-            Vector2Int cell)
-        {
-            if (!map.InBounds(cell.x, cell.y))
-            {
-                return false;
-            }
-
-            if (blockedMask == null || blockedMask.Length == 0)
-            {
-                return map.IsWalkable(cell.x, cell.y);
-            }
-
-            int index = map.GetIndex(cell.x, cell.y);
-
-            return index >= 0 &&
-                   index < blockedMask.Length &&
-                   !blockedMask[index];
         }
 
         // Tight corners establish low speed limits. The distance-to-limit pass below

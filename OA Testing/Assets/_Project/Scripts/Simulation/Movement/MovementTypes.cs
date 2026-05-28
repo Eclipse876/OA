@@ -46,6 +46,7 @@ namespace OA.Simulation.Movement
         public MovementSpeedMode SpeedMode;
         public float SpeedLimitKnots; // Optional speed limit for the command, used for speed-restricted maneuvers like tight turns or emergency stops.
                                       // If 0 or less, no additional speed limit is applied beyond the normal cruise/flank speeds.
+        public float TerrainSpeedMultiplier; // Current water condition multiplier. 1 is calm water; rough water reduces commanded speed.
         public bool RouteChanged;
 
         public static MovementCommand Hold(Vector2 position, bool routeChanged = false)
@@ -57,6 +58,7 @@ namespace OA.Simulation.Movement
                 RemainingDistanceWorld = 0f,
                 SpeedMode = MovementSpeedMode.Cruise,
                 SpeedLimitKnots = 0f,
+                TerrainSpeedMultiplier = 1f,
                 RouteChanged = routeChanged
             };
         }
@@ -66,7 +68,8 @@ namespace OA.Simulation.Movement
             float remainingDistanceWorld,
             MovementSpeedMode speedMode,
             float speedLimitKnots,
-            bool routeChanged = false)
+            bool routeChanged = false,
+            float terrainSpeedMultiplier = 1f)
         {
             return new MovementCommand
             {
@@ -75,6 +78,7 @@ namespace OA.Simulation.Movement
                 RemainingDistanceWorld = Mathf.Max(0f, remainingDistanceWorld),
                 SpeedMode = speedMode,
                 SpeedLimitKnots = Mathf.Max(0f, speedLimitKnots),
+                TerrainSpeedMultiplier = Mathf.Clamp(terrainSpeedMultiplier, 0.001f, 1f),
                 RouteChanged = routeChanged
             };
         }
@@ -88,6 +92,7 @@ namespace OA.Simulation.Movement
                 RemainingDistanceWorld = 0f,
                 SpeedMode = MovementSpeedMode.Cruise,
                 SpeedLimitKnots = 0f,
+                TerrainSpeedMultiplier = 1f,
                 RouteChanged = true
             };
         }

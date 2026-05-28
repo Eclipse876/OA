@@ -15,17 +15,19 @@ namespace OA.Integrations.AStar
         [SerializeField] private string graphName = "OA_HexGraph";
         [SerializeField] private bool logGraphRebuild = true;
 
-        [Header("Cost Tuning")]
-        [SerializeField, Min(0f)] private float roughPenaltyScale = 12000f;
-
         private readonly Vector2Int[] neighborBuffer = new Vector2Int[6];
         private readonly Dictionary<GraphNode, Vector2Int> cellByNode =
             new Dictionary<GraphNode, Vector2Int>();
+        private readonly Dictionary<TraversalMaskKey, NavigationTraversalMask> traversalMasks =
+            new Dictionary<TraversalMaskKey, NavigationTraversalMask>();
+        private readonly Dictionary<NavigationTraversalMask, MaskTraversalProvider> traversalProviders =
+            new Dictionary<NavigationTraversalMask, MaskTraversalProvider>();
 
         private PointGraph graph;
         private PointNode[] nodesByCell;
         private HexMapRuntime activeMap;
         private GraphMask graphMask;
+        private NavigationTraversalMask lastAppliedTraversalMask;
 
         public bool IsReady =>
             graph != null &&
@@ -34,6 +36,8 @@ namespace OA.Integrations.AStar
             AstarPath.active != null;
 
         public bool[] LastAppliedBlockedMask { get; private set; }
+        public int TraversalMaskCacheHits { get; private set; }
+        public int TraversalMaskCacheMisses { get; private set; }
 
         // Compatibility overload for callers that only provide a safety radius.
         public void RebuildGraph(HexMapRuntime map, float safetyRadiusWorld)
@@ -72,10 +76,14 @@ namespace OA.Integrations.AStar
                 return;
             }
 
-            bool[] blockedWithSafety = BuildTraversalMask(map, profile);
-
             activeMap = map;
-            LastAppliedBlockedMask = blockedWithSafety;
+            traversalMasks.Clear();
+            traversalProviders.Clear();
+            TraversalMaskCacheHits = 0;
+            TraversalMaskCacheMisses = 0;
+
+            lastAppliedTraversalMask = GetTraversalMask(map, profile);
+            LastAppliedBlockedMask = lastAppliedTraversalMask.BlockedCells;
 
             AstarPath.active.AddWorkItem(ctx =>
             {
@@ -84,7 +92,7 @@ namespace OA.Integrations.AStar
                 nodesByCell = new PointNode[map.Width * map.Height];
                 cellByNode.Clear();
 
-                BuildNodes(map, blockedWithSafety);
+                BuildNodes(map);
                 BuildConnections(map);
 
                 graph.RebuildNodeLookup();
@@ -105,8 +113,8 @@ namespace OA.Integrations.AStar
             }
         }
 
-        // Applies a different ship-specific blocked mask to the existing PointGraph.
-        // Node positions and connections do not change when only draft or safety radius changes.
+        // Selects a different visible profile without changing graph topology or node state.
+        // Individual path requests carry their immutable mask through an ITraversalProvider.
         public void ApplyTraversalProfile(
             HexMapRuntime map,
             NavigationProfile profile)
@@ -125,22 +133,69 @@ namespace OA.Integrations.AStar
                 return;
             }
 
-            bool[] blockedWithSafety = BuildTraversalMask(map, profile);
-            LastAppliedBlockedMask = blockedWithSafety;
+            lastAppliedTraversalMask = GetTraversalMask(map, profile);
+            LastAppliedBlockedMask = lastAppliedTraversalMask.BlockedCells;
+        }
 
-            AstarPath.active.AddWorkItem(ctx =>
+        // Caches expanded draft/clearance masks. Map edits change Version and miss safely.
+        public NavigationTraversalMask GetTraversalMask(
+            HexMapRuntime map,
+            NavigationProfile profile)
+        {
+            if (map == null)
             {
-                UpdateNodeTraversal(map, blockedWithSafety);
-                ctx.SetGraphDirty(graph);
-            });
+                return null;
+            }
 
-            AstarPath.active.FlushWorkItems();
+            int safetySteps = Mathf.CeilToInt(
+                Mathf.Max(0f, profile.SafetyRadiusWorld) /
+                Mathf.Max(0.001f, map.CellSize));
+
+            TraversalMaskKey key = new TraversalMaskKey(
+                map.Version,
+                profile.DraftClass,
+                safetySteps);
+
+            if (map == activeMap &&
+                traversalMasks.TryGetValue(key, out NavigationTraversalMask cached))
+            {
+                TraversalMaskCacheHits++;
+                return cached;
+            }
+
+            TraversalMaskCacheMisses++;
+            NavigationTraversalMask created = new NavigationTraversalMask(
+                map,
+                map.Version,
+                profile,
+                BuildTraversalMask(map, profile));
+
+            if (map == activeMap)
+            {
+                traversalMasks[key] = created;
+            }
+
+            return created;
         }
 
         // Requests a route between two simulation cells and returns simulation cells.
         public bool TryFindPath(
             Vector2Int start,
             Vector2Int goal,
+            List<Vector2Int> outPath)
+        {
+            return TryFindPath(
+                start,
+                goal,
+                lastAppliedTraversalMask,
+                outPath);
+        }
+
+        // Requests a path using immutable per-ship restrictions instead of graph mutations.
+        public bool TryFindPath(
+            Vector2Int start,
+            Vector2Int goal,
+            NavigationTraversalMask mask,
             List<Vector2Int> outPath)
         {
             if (outPath == null)
@@ -156,7 +211,12 @@ namespace OA.Integrations.AStar
             }
 
             if (!activeMap.InBounds(start.x, start.y) ||
-                !activeMap.InBounds(goal.x, goal.y))
+                !activeMap.InBounds(goal.x, goal.y) ||
+                mask == null ||
+                mask.Map != activeMap ||
+                mask.MapVersion != activeMap.Version ||
+                mask.IsBlocked(start) ||
+                mask.IsBlocked(goal))
             {
                 return false;
             }
@@ -179,6 +239,9 @@ namespace OA.Integrations.AStar
 
             request.Claim(this);
             request.traversalConstraint.graphMask = graphMask;
+            MaskTraversalProvider provider = GetTraversalProvider(mask);
+            request.traversalConstraint.traversalProvider = provider;
+            request.traversalCosts.traversalProvider = provider;
             request.calculatePartial = false;
 
             try
@@ -272,7 +335,7 @@ namespace OA.Integrations.AStar
 
         // Adds one graph node for every visible simulation cell.
         // This method must only run inside an A* work item.
-        private void BuildNodes(HexMapRuntime map, bool[] blockedMask)
+        private void BuildNodes(HexMapRuntime map)
         {
             for (int y = 0; y < map.Height; y++)
             {
@@ -284,43 +347,11 @@ namespace OA.Integrations.AStar
                     PointNode node = graph.AddNode(
                         (Int3)new Vector3(center.x, center.y, 0f));
 
-                    bool walkable = !blockedMask[index];
-
-                    node.Walkable = walkable;
-                    node.Penalty = walkable
-                        ? CalculatePenalty(map.GetMoveCost(x, y))
-                        : 0u;
+                    node.Walkable = !map.IsBlocked(x, y);
+                    node.Penalty = 0u;
 
                     nodesByCell[index] = node;
                     cellByNode[node] = new Vector2Int(x, y);
-                }
-            }
-        }
-
-        // Updates walkability and penalties without destroying the stable tile-center graph.
-        // This is used during kinematic clearance retries.
-        private void UpdateNodeTraversal(
-            HexMapRuntime map,
-            bool[] blockedMask)
-        {
-            for (int y = 0; y < map.Height; y++)
-            {
-                for (int x = 0; x < map.Width; x++)
-                {
-                    int index = map.GetIndex(x, y);
-                    PointNode node = nodesByCell[index];
-
-                    if (node == null)
-                    {
-                        continue;
-                    }
-
-                    bool walkable = !blockedMask[index];
-
-                    node.Walkable = walkable;
-                    node.Penalty = walkable
-                        ? CalculatePenalty(map.GetMoveCost(x, y))
-                        : 0u;
                 }
             }
         }
@@ -478,17 +509,103 @@ namespace OA.Integrations.AStar
                    map.GetDepthClass(x, y) == WaterDepthClass.Shallow;
         }
 
-        private uint CalculatePenalty(float cellCost)
+        private MaskTraversalProvider GetTraversalProvider(
+            NavigationTraversalMask mask)
         {
-            if (cellCost <= 1.001f)
+            if (traversalProviders.TryGetValue(mask, out MaskTraversalProvider provider))
             {
-                return 0u;
+                return provider;
             }
 
-            int penalty = Mathf.RoundToInt(
-                (cellCost - 1f) * roughPenaltyScale);
+            provider = new MaskTraversalProvider(
+                mask,
+                cellByNode);
 
-            return (uint)Mathf.Max(0, penalty);
+            traversalProviders.Add(mask, provider);
+            return provider;
+        }
+
+        private readonly struct TraversalMaskKey
+        {
+            private readonly int mapVersion;
+            private readonly ShipDraftClass draftClass;
+            private readonly int safetySteps;
+
+            public TraversalMaskKey(
+                int mapVersion,
+                ShipDraftClass draftClass,
+                int safetySteps)
+            {
+                this.mapVersion = mapVersion;
+                this.draftClass = draftClass;
+                this.safetySteps = safetySteps;
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is TraversalMaskKey other &&
+                       mapVersion == other.mapVersion &&
+                       draftClass == other.draftClass &&
+                       safetySteps == other.safetySteps;
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int hash = mapVersion;
+                    hash = hash * 397 ^ (int)draftClass;
+                    hash = hash * 397 ^ safetySteps;
+                    return hash;
+                }
+            }
+        }
+
+        // Query-specific restrictions and water cost; immutable so A* worker threads can read it.
+        private sealed class MaskTraversalProvider : ITraversalProvider
+        {
+            private readonly NavigationTraversalMask mask;
+            private readonly Dictionary<GraphNode, Vector2Int> cellByNode;
+
+            public MaskTraversalProvider(
+                NavigationTraversalMask mask,
+                Dictionary<GraphNode, Vector2Int> cellByNode)
+            {
+                this.mask = mask;
+                this.cellByNode = cellByNode;
+            }
+
+            public bool CanTraverse(
+                ref TraversalConstraint traversalConstraint,
+                GraphNode node)
+            {
+                return cellByNode.TryGetValue(node, out Vector2Int cell) &&
+                       !mask.IsBlocked(cell);
+            }
+
+            public float GetTraversalCostMultiplier(
+                ref TraversalCosts traversalCosts,
+                GraphNode node)
+            {
+                if (!cellByNode.TryGetValue(node, out Vector2Int cell))
+                {
+                    return 1f;
+                }
+
+                return Mathf.Max(
+                    1f,
+                    mask.Map.GetMoveCost(cell.x, cell.y));
+            }
+
+            public uint GetConnectionCost(
+                ref TraversalCosts traversalCosts,
+                GraphNode from,
+                GraphNode to)
+            {
+                // The multiplier already represents rough-water travel time.
+                // A second added cost would exaggerate the live slowdown.
+                return 0u;
+            }
         }
 
         private struct CellDepth

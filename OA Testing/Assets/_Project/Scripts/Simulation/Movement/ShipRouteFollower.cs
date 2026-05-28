@@ -3,6 +3,8 @@
 // Keeping this rule in one place is what lets the colored line remain an honest
 // preview of the motion the player sees once the order is accepted.
 using System.Collections.Generic;
+using OA.Simulation.Navigation;
+using OA.Simulation.Units;
 using UnityEngine;
 
 namespace OA.Simulation.Movement
@@ -15,6 +17,8 @@ namespace OA.Simulation.Movement
         public bool IsComplete;
         public Vector2 PreviousPosition;
         public bool HasPreviousPosition;
+        public int SegmentIndex;
+        public int ConstraintIndex;
 
         public void Reset()
         {
@@ -22,6 +26,8 @@ namespace OA.Simulation.Movement
             IsComplete = false;
             PreviousPosition = default;
             HasPreviousPosition = false;
+            SegmentIndex = 0;
+            ConstraintIndex = 1;
         }
     }
 
@@ -33,6 +39,8 @@ namespace OA.Simulation.Movement
             IReadOnlyList<ShipRoutePoint> route,
             ref ShipRouteFollowState followState,
             MovementSpeedMode speedMode,
+            MovementProfileDefinition profile,
+            HexMapRuntime map,
             float lookAheadDistance,
             float arrivalDistance,
             bool routeChanged,
@@ -80,21 +88,32 @@ namespace OA.Simulation.Movement
 
             followState.IsComplete = false;
 
-            int guidanceIndex = FindPointAtOrAfterDistance(
+            int guidanceIndex = AdvancePointIndex(
                 route,
-                followState.ProgressWorld + 0.0001f);
+                followState.ProgressWorld + 0.0001f,
+                followState.ConstraintIndex);
 
-            ShipRoutePoint guidance = route[guidanceIndex];
-            segmentIntent = guidance.SegmentIntent;
+            followState.ConstraintIndex = guidanceIndex;
 
             float steeringDistance = Mathf.Min(
                 totalDistance,
                 followState.ProgressWorld + Mathf.Max(0.01f, lookAheadDistance));
 
-            Vector2 steeringTarget = GetPositionAtDistance(route, steeringDistance);
+            Vector2 steeringTarget = GetPositionAtDistance(
+                route,
+                steeringDistance,
+                followState.SegmentIndex);
+
             float remainingDistance = Mathf.Max(
                 0f,
                 totalDistance - followState.ProgressWorld);
+
+            float speedLimitKnots = KinematicRoutePlanner.CalculateAllowedSpeedKnots(
+                route,
+                followState.ProgressWorld,
+                speedMode,
+                profile,
+                out segmentIntent);
 
             // Once the route reaches its final sample, brake against actual endpoint distance.
             // This lets a heavy ship correct a small overshoot instead of declaring the route done.
@@ -106,12 +125,17 @@ namespace OA.Simulation.Movement
                 segmentIntent = RouteSegmentIntent.Stop;
             }
 
+            float terrainSpeedMultiplier = GetTerrainSpeedMultiplier(
+                map,
+                movementState.Position);
+
             return MovementCommand.Move(
                 steeringTarget,
                 remainingDistance,
                 speedMode,
-                guidance.SpeedLimitKnots,
-                routeChanged);
+                speedLimitKnots,
+                routeChanged,
+                terrainSpeedMultiplier);
         }
 
         // Projects the ship locally forward along its present leg instead of
@@ -137,13 +161,15 @@ namespace OA.Simulation.Movement
                 route[route.Count - 1].DistanceFromStartWorld,
                 followState.ProgressWorld + maximumAdvance);
 
-            int startSegment = Mathf.Max(
-                0,
-                FindSegmentAtDistance(route, followState.ProgressWorld) - 1);
+            int startSegment = Mathf.Max(0, followState.SegmentIndex - 1);
+            int endSegment = startSegment;
 
-            int endSegment = Mathf.Min(
-                route.Count - 2,
-                FindSegmentAtDistance(route, maximumProgress));
+            while (endSegment < route.Count - 2 &&
+                   route[endSegment + 1].DistanceFromStartWorld <=
+                   maximumProgress + 0.001f)
+            {
+                endSegment++;
+            }
 
             float bestProgress = followState.ProgressWorld;
             float bestDistanceSqr = float.PositiveInfinity;
@@ -190,43 +216,55 @@ namespace OA.Simulation.Movement
             followState.ProgressWorld = Mathf.Max(
                 followState.ProgressWorld,
                 bestProgress);
+
+            followState.SegmentIndex = AdvanceSegmentIndex(
+                route,
+                followState.ProgressWorld,
+                followState.SegmentIndex);
         }
 
-        private static int FindPointAtOrAfterDistance(
+        private static int AdvancePointIndex(
             IReadOnlyList<ShipRoutePoint> route,
-            float distance)
+            float distance,
+            int startIndex)
         {
-            for (int i = 1; i < route.Count; i++)
+            int index = Mathf.Clamp(startIndex, 1, route.Count - 1);
+
+            while (index < route.Count - 1 &&
+                   route[index].DistanceFromStartWorld < distance)
             {
-                if (route[i].DistanceFromStartWorld >= distance)
-                {
-                    return i;
-                }
+                index++;
             }
 
-            return route.Count - 1;
+            return index;
         }
 
-        private static int FindSegmentAtDistance(
+        private static int AdvanceSegmentIndex(
             IReadOnlyList<ShipRoutePoint> route,
-            float distance)
+            float distance,
+            int startIndex)
         {
-            for (int i = 0; i < route.Count - 1; i++)
+            int index = Mathf.Clamp(startIndex, 0, route.Count - 2);
+
+            while (index < route.Count - 2 &&
+                   route[index + 1].DistanceFromStartWorld < distance)
             {
-                if (route[i + 1].DistanceFromStartWorld >= distance)
-                {
-                    return i;
-                }
+                index++;
             }
 
-            return Mathf.Max(0, route.Count - 2);
+            return index;
         }
 
         private static Vector2 GetPositionAtDistance(
             IReadOnlyList<ShipRoutePoint> route,
-            float distance)
+            float distance,
+            int startIndex)
         {
-            int segmentIndex = FindSegmentAtDistance(route, distance);
+            int segmentIndex = AdvanceSegmentIndex(
+                route,
+                distance,
+                startIndex);
+
             ShipRoutePoint a = route[segmentIndex];
             ShipRoutePoint b = route[segmentIndex + 1];
 
@@ -238,6 +276,19 @@ namespace OA.Simulation.Movement
                 (distance - a.DistanceFromStartWorld) / segmentLength);
 
             return Vector2.Lerp(a.Position, b.Position, t);
+        }
+
+        private static float GetTerrainSpeedMultiplier(
+            HexMapRuntime map,
+            Vector2 position)
+        {
+            if (map == null ||
+                !map.TryWorldToCell(position, out Vector2Int cell))
+            {
+                return 1f;
+            }
+
+            return 1f / Mathf.Max(1f, map.GetMoveCost(cell.x, cell.y));
         }
     }
 }
