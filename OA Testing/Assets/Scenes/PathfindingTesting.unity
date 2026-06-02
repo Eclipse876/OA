@@ -128872,7 +128872,7 @@ MonoBehaviour:
   debugSettings: {fileID: 11400000, guid: 825672d861e285942a411bc6d2a58db9, type: 2}
   shipArchetype: {fileID: 11400000, guid: 445c580581612484b84c203d65251d9f, type: 2}
   shipAgent: {fileID: 465355986}
-  pathServiceBehaviour: {fileID: 1882459469}
+  pathServiceBehaviour: {fileID: 1882459471}
   gridPresenterBehaviour: {fileID: 184174279}
   activeRouteLine: {fileID: 1984007870}
   queuedRouteLine: {fileID: 92007589}
@@ -128894,6 +128894,8 @@ MonoBehaviour:
   constrainedTurnAttempts: 3
   constrainedTurnSpeedScaleStep: 0.3
   minimumConstrainedTurnSpeedScale: 0.1
+  planningBudgetMillisecondsPerFrame: 2
+  severeTurnSpeedFraction: 0.35
   generateFromDefinitionMetadata: 1
 --- !u!1 &1481991051
 GameObject:
@@ -128984,8 +128986,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1882459470}
-  - component: {fileID: 1882459468}
-  - component: {fileID: 1882459469}
+  - component: {fileID: 1882459471}
   m_Layer: 0
   m_Name: NavigationService
   m_TagString: Untagged
@@ -128993,76 +128994,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1882459468
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1882459467}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 78396926cbbfc4ac3b48fc5fc34a87d1, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: AstarPathfindingProject::AstarPath
-  version: 1073741824
-  data:
-    dataString: UEsDBBQAAAgIAACYn+uJiR3dNAAAAD0AAAAJACQAbWV0YS5qc29uCgAgAAAAAAABABgAAIA+1d6xnQEAgD7V3rGdAQCAPtXesZ0Bq1YqSy0qzszPU7JSMNUz0TPTUVBKL0osyCgGChiAOKWZKSB2dCyQU1JZkOqXmJsKEagFAFBLAQItABQAAAgIAACYn+uJiR3dNAAAAD0AAAAJACQAAAAAAAAAAAAAAAAAAABtZXRhLmpzb24KACAAAAAAAAEAGAAAgD7V3rGdAQCAPtXesZ0BAIA+1d6xnQFQSwUGAAAAAAEAAQBbAAAAfwAAAAAA
-    file_cachedStartup: {fileID: 0}
-    cacheStartup: 0
-  showNavGraphs: 1
-  showUnwalkableNodes: 1
-  debugMode: 0
-  graphUpdateDebugMode: 0
-  debugFloor: 0
-  debugRoof: 1
-  manualDebugFloorRoof: 0
-  showSearchTree: 0
-  unwalkableNodeDebugSize: 0.3
-  logPathResults: 4
-  maxNearestNodeDistance: 100
-  scanOnStartup: 1
-  fullGetNearestSearch: 0
-  prioritizeGraphs: 0
-  prioritizeGraphsLimit: 1
-  colorSettings:
-    _SolidColor: {r: 0.11764706, g: 0.4, b: 0.7882353, a: 0.9}
-    _UnwalkableNode: {r: 1, g: 0, b: 0, a: 0.5}
-    _BoundsHandles: {r: 0.29, g: 0.454, b: 0.741, a: 0.9}
-    _ConnectionLowLerp: {r: 0, g: 1, b: 0, a: 0.5}
-    _ConnectionHighLerp: {r: 1, g: 0, b: 0, a: 0.5}
-    _AreaColors: []
-  tagNames: []
-  heuristic: 2
-  heuristicScale: 1
-  threadCount: 1
-  maxFrameTime: 1
-  batchGraphUpdates: 0
-  graphUpdateBatchingInterval: 0.2
-  navmeshUpdates:
-    updateInterval: 0
-  euclideanEmbedding:
-    mode: 0
-    seed: 0
-    pivotPointRoot: {fileID: 0}
-    spreadOutCount: 10
-  showGraphs: 1
-  showGraphsInStandalonePlayer: 0
---- !u!114 &1882459469
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1882459467}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2a63ef5255e952344b027063e2b2e697, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: OA.Integrations.AStar::OA.Integrations.AStar.AStarHexPathService
-  graphName: OA_HexGraph
-  logGraphRebuild: 1
-  roughPenaltyScale: 12000
 --- !u!4 &1882459470
 Transform:
   m_ObjectHideFlags: 0
@@ -129078,6 +129009,19 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1675190704}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1882459471
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1882459467}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8b616dd9a0a18a0478ba748953d568e4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: OA.Simulation::OA.Simulation.Navigation.HexMapPathService
+  logRebuild: 1
 --- !u!1 &1882576763
 GameObject:
   m_ObjectHideFlags: 0
