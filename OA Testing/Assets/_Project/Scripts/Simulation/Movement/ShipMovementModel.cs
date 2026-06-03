@@ -86,7 +86,7 @@ namespace OA.Simulation.Movement
             bool hasSteeringTarget = false;
             float desiredHeading = state.HeadingDegrees;
 
-            if (command.Intent == MovementIntent.Move)
+            if (IsSteeringIntent(command.Intent))
             {
                 Vector2 toTarget = command.SteeringTarget - state.Position;
 
@@ -117,10 +117,14 @@ namespace OA.Simulation.Movement
                 desiredRudder,
                 rudderRate * simDt);
 
-            float maxTurnRate = ShipKinematicUtility.CalculateTurnRateDegreesPerSecond(
-                nextSpeedKnots,
-                profile,
-                handling);
+            float maxTurnRate = command.Intent == MovementIntent.Pivot
+                ? ShipKinematicUtility.CalculatePivotTurnRateDegreesPerSecond(
+                    profile,
+                    handling)
+                : ShipKinematicUtility.CalculateTurnRateDegreesPerSecond(
+                    nextSpeedKnots,
+                    profile,
+                    handling);
 
             float targetYawRate = nextRudder * maxTurnRate;
 
@@ -185,18 +189,33 @@ namespace OA.Simulation.Movement
                 nextDirection.Normalize();
             }
 
-            float targetWorldSpeed = MovementMath.KnotsToWorldUnitsPerSecond(
-                nextSpeedKnots,
-                profile.metersPerWorldUnit);
+            Vector2 nextVelocity;
+            Vector2 nextPosition;
 
-            Vector2 nextVelocity = nextDirection * targetWorldSpeed;
+            if (command.Intent == MovementIntent.Pivot)
+            {
+                // Confined escape turns deliberately rotate in place. This is
+                // used only after route following detects that translating first
+                // would trap the ship against restricted water.
+                nextSpeedKnots = 0f;
+                nextVelocity = Vector2.zero;
+                nextPosition = state.Position;
+            }
+            else
+            {
+                float targetWorldSpeed = MovementMath.KnotsToWorldUnitsPerSecond(
+                    nextSpeedKnots,
+                    profile.metersPerWorldUnit);
 
-            nextVelocity = ClampDrift(
-                nextVelocity,
-                nextHeading,
-                handling.MaxDriftAngleDegrees);
+                nextVelocity = nextDirection * targetWorldSpeed;
 
-            Vector2 nextPosition = state.Position + nextVelocity * simDt;
+                nextVelocity = ClampDrift(
+                    nextVelocity,
+                    nextHeading,
+                    handling.MaxDriftAngleDegrees);
+
+                nextPosition = state.Position + nextVelocity * simDt;
+            }
 
             return new MovementState
             {
@@ -214,7 +233,8 @@ namespace OA.Simulation.Movement
             MovementProfileDefinition profile)
         {
             if (command.Intent == MovementIntent.Stop ||
-                command.Intent == MovementIntent.Hold)
+                command.Intent == MovementIntent.Hold ||
+                command.Intent == MovementIntent.Pivot)
             {
                 return 0f;
             }
@@ -222,6 +242,12 @@ namespace OA.Simulation.Movement
             return ShipKinematicUtility.GetTargetSpeedKnots(
                 command.SpeedMode,
                 profile);
+        }
+
+        private static bool IsSteeringIntent(MovementIntent intent)
+        {
+            return intent == MovementIntent.Move ||
+                   intent == MovementIntent.Pivot;
         }
 
         // Normal arrival braking computes how fast the ship may safely be moving

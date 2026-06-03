@@ -16,16 +16,16 @@ MonoBehaviour:
   simulationSecondsPerRealSecond: 60
   lengthMeters: 150
   displacementTons: 40000
-  depthClass: 0
+  draftClass: 1
   depthMeters: 5
   crewRequired: 50
   crewComplement: 100
-  cruiseSpeedKnots: 18
-  flankSpeedKnots: 30
+  cruiseSpeedKnots: 20
+  flankSpeedKnots: 35
   accelerationKnotsPerSecond: 0.08
   decelerationKnotsPerSecond: 0.12
   maxDecelerationKnotsPerSecond: 0.35
-  agility: 2
+  agility: 5
   useDebugHandlingOverrides: 0
   debugRudderShiftTimeSeconds: 5
   debugYawAccelerationDegreesPerSecondSquared: 1
@@ -36,6 +36,7 @@ MonoBehaviour:
   debugTacticalDiameterAtFlankLengths: 5
   debugTurnSpeedLossFactor: 0.015
   debugTightTurnSpeedMultiplier: 0.65
+  debugMinimumTacticalDiameterLengths: 0.25
   safetyRadius: 1
   stoppingDistance: 0.1
   maxSpeed: 8

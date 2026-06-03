@@ -12,7 +12,8 @@ namespace OA.Simulation.Movement
     {
         Hold = 0,
         Move = 1,
-        Stop = 2
+        Stop = 2,
+        Pivot = 3
     }
 
     public struct MovementState
@@ -94,6 +95,20 @@ namespace OA.Simulation.Movement
                 SpeedLimitKnots = 0f,
                 TerrainSpeedMultiplier = 1f,
                 RouteChanged = true
+            };
+        }
+
+        public static MovementCommand Pivot(Vector2 steeringTarget, bool routeChanged = false)
+        {
+            return new MovementCommand
+            {
+                Intent = MovementIntent.Pivot,
+                SteeringTarget = steeringTarget,
+                RemainingDistanceWorld = 0f,
+                SpeedMode = MovementSpeedMode.Cruise,
+                SpeedLimitKnots = 0f,
+                TerrainSpeedMultiplier = 1f,
+                RouteChanged = routeChanged
             };
         }
     }

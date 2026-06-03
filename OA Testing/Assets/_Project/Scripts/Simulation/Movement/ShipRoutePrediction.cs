@@ -11,6 +11,8 @@ namespace OA.Simulation.Movement
     {
         private const float PredictionSampleSpacing = 0.025f;
         private const int MaximumPredictionSteps = 30000;
+        private const float MinimumUsefulProgressWorld = 0.04f;
+        private const float MinimumUsefulFinalDistanceImprovementWorld = 0.04f;
 
         private readonly ShipMovementModel movementModel = new ShipMovementModel();
 
@@ -23,11 +25,17 @@ namespace OA.Simulation.Movement
         private float lookAheadDistance;
         private float arrivalDistance;
         private float maximumUsefulArrivalTimeSeconds;
+        private float maximumPredictionSeconds;
+        private float stagnationSeconds;
 
         private MovementState simulatedState;
         private ShipRouteFollowState followState;
         private float predictedDistance;
         private float predictedTime;
+        private float bestProgressWorld;
+        private float bestFinalDistanceWorld;
+        private float lastImprovementTime;
+        private Vector2 finalPosition;
         private int steps;
 
         public bool IsRunning { get; private set; }
@@ -45,7 +53,9 @@ namespace OA.Simulation.Movement
             float fixedDeltaTime,
             float lookAheadDistance,
             float arrivalDistance,
-            float maximumUsefulArrivalTimeSeconds = float.PositiveInfinity)
+            float maximumUsefulArrivalTimeSeconds = float.PositiveInfinity,
+            float maximumPredictionSeconds = 45f,
+            float stagnationSeconds = 4f)
         {
             this.candidate = candidate;
             this.profile = profile;
@@ -56,11 +66,17 @@ namespace OA.Simulation.Movement
             this.lookAheadDistance = lookAheadDistance;
             this.arrivalDistance = arrivalDistance;
             this.maximumUsefulArrivalTimeSeconds = maximumUsefulArrivalTimeSeconds;
+            this.maximumPredictionSeconds = Mathf.Max(1f, maximumPredictionSeconds);
+            this.stagnationSeconds = Mathf.Max(this.dt, stagnationSeconds);
 
             simulatedState = initialState;
             followState.Reset();
             predictedDistance = 0f;
             predictedTime = 0f;
+            bestProgressWorld = 0f;
+            bestFinalDistanceWorld = 0f;
+            lastImprovementTime = 0f;
+            finalPosition = initialState.Position;
             steps = 0;
             IsRunning = candidate != null &&
                         candidate.ControlPoints.Count >= 2 &&
@@ -79,13 +95,28 @@ namespace OA.Simulation.Movement
             candidate.TotalDistanceWorld = 0f;
             candidate.EstimatedTimeSeconds = 0f;
             candidate.IsValid = false;
+            candidate.TraversalMask = traversalMask;
 
             ShipRoutePoint firstPoint = candidate.ControlPoints[0];
+            ShipRoutePoint finalPoint =
+                candidate.ControlPoints[candidate.ControlPoints.Count - 1];
+
+            finalPosition = finalPoint.Position;
+            bestFinalDistanceWorld = Vector2.Distance(
+                initialState.Position,
+                finalPosition);
+
             candidate.PredictedSamples.Add(new ShipRouteSample(
                 simulatedState.Position,
                 simulatedState.SpeedKnots,
                 firstPoint.SpeedLimitKnots,
                 firstPoint.SegmentIntent));
+        }
+
+        public void Cancel()
+        {
+            IsRunning = false;
+            candidate = null;
         }
 
         public void Advance(int maximumSteps)
@@ -108,10 +139,21 @@ namespace OA.Simulation.Movement
                     speedMode,
                     profile,
                     map,
+                    traversalMask,
                     lookAheadDistance,
                     arrivalDistance,
                     steps == 0,
                     out RouteSegmentIntent intent);
+
+                command = ShipRouteFollower.ApplyConfinedPivotIfNeeded(
+                    simulatedState,
+                    command,
+                    arrivalDistance,
+                    profile,
+                    map,
+                    traversalMask,
+                    dt,
+                    movementModel);
 
                 MovementState nextState = movementModel.Step(
                     simulatedState,
@@ -119,7 +161,8 @@ namespace OA.Simulation.Movement
                     profile,
                     dt);
 
-                if (!RouteSegmentUtility.IsSegmentTraversable(
+                if (!IsPredictedStepTraversable(
+                    command,
                     map,
                     traversalMask,
                     simulatedState.Position,
@@ -147,12 +190,33 @@ namespace OA.Simulation.Movement
                     followState.IsComplete);
 
                 simulatedState = nextState;
+                UpdateImprovementTracking(nextState.Position);
 
                 if (followState.IsComplete)
                 {
                     candidate.TotalDistanceWorld = predictedDistance;
                     candidate.EstimatedTimeSeconds = predictedTime;
                     candidate.IsValid = candidate.PredictedSamples.Count >= 2;
+                    IsRunning = false;
+                    return;
+                }
+
+                if (predictedTime > maximumPredictionSeconds)
+                {
+                    candidate.Reject(
+                        ShipRouteFailureReason.PredictionBudgetExceeded,
+                        simulatedState.Position,
+                        predictedTime);
+                    IsRunning = false;
+                    return;
+                }
+
+                if (predictedTime - lastImprovementTime >= stagnationSeconds)
+                {
+                    candidate.Reject(
+                        ShipRouteFailureReason.CandidateStalled,
+                        simulatedState.Position,
+                        predictedTime);
                     IsRunning = false;
                     return;
                 }
@@ -176,6 +240,56 @@ namespace OA.Simulation.Movement
                     simulatedState.Position,
                     predictedTime);
                 IsRunning = false;
+            }
+        }
+
+        private static bool IsPredictedStepTraversable(
+            MovementCommand command,
+            HexMapRuntime map,
+            NavigationTraversalMask traversalMask,
+            Vector2 start,
+            Vector2 end)
+        {
+            if (command.Intent == MovementIntent.Pivot)
+            {
+                return map != null &&
+                       map.TryWorldToCell(start, out Vector2Int cell) &&
+                       map.IsWalkable(cell.x, cell.y);
+            }
+
+            return RouteSegmentUtility.IsSegmentTraversable(
+                map,
+                traversalMask,
+                start,
+                end);
+        }
+
+        // Candidates that circle near a waypoint can keep burning simulation
+        // steps without ever arriving. Track useful improvement and reject them
+        // quickly once they stop getting closer or progressing along the route.
+        private void UpdateImprovementTracking(Vector2 position)
+        {
+            bool improved = false;
+
+            if (followState.ProgressWorld >
+                bestProgressWorld + MinimumUsefulProgressWorld)
+            {
+                bestProgressWorld = followState.ProgressWorld;
+                improved = true;
+            }
+
+            float finalDistance = Vector2.Distance(position, finalPosition);
+
+            if (finalDistance <
+                bestFinalDistanceWorld - MinimumUsefulFinalDistanceImprovementWorld)
+            {
+                bestFinalDistanceWorld = finalDistance;
+                improved = true;
+            }
+
+            if (improved)
+            {
+                lastImprovementTime = predictedTime;
             }
         }
 

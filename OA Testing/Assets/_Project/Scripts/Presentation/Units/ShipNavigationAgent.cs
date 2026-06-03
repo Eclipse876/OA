@@ -4,6 +4,7 @@
 // snapping between points like a debug cube.
 using System.Collections.Generic;
 using OA.Simulation.Movement;
+using OA.Simulation.Navigation;
 using OA.Simulation.Units;
 using UnityEngine;
 
@@ -32,7 +33,8 @@ namespace OA.Presentation.Units
 
         private ShipRouteFollowState routeFollowState;
         private MovementState movementState;
-        private OA.Simulation.Navigation.HexMapRuntime navigationMap;
+        private HexMapRuntime navigationMap;
+        private NavigationTraversalMask activeTraversalMask;
         private MovementSpeedMode speedMode;
         private bool forceStop;
         private bool routeChangedThisFrame;
@@ -46,9 +48,10 @@ namespace OA.Presentation.Units
         public float WaypointReachDistance => waypointReachDistance;
         public MovementProfileDefinition MovementProfile => Runtime != null ? Runtime.Archetype.movementProfile : null;
 
-        public void SetNavigationMap(OA.Simulation.Navigation.HexMapRuntime map)
+        public void SetNavigationMap(HexMapRuntime map)
         {
             navigationMap = map;
+            activeTraversalMask = null;
         }
 
         // Optional self-start for scene-placed ships that already have an archetype assigned.
@@ -112,6 +115,7 @@ namespace OA.Presentation.Units
         {
             pathPoints.Clear();
             routeFollowState.Reset();
+            activeTraversalMask = null;
             forceStop = true;
             routeChangedThisFrame = true;
         }
@@ -121,6 +125,7 @@ namespace OA.Presentation.Units
         {
             pathPoints.Clear();
             routeFollowState.Reset();
+            activeTraversalMask = null;
             forceStop = false;
             routeChangedThisFrame = true;
 
@@ -155,6 +160,7 @@ namespace OA.Presentation.Units
         {
             pathPoints.Clear();
             routeFollowState.Reset();
+            activeTraversalMask = route != null ? route.TraversalMask : null;
             forceStop = false;
             routeChangedThisFrame = true;
 
@@ -235,23 +241,35 @@ namespace OA.Presentation.Units
                 return MovementCommand.Hold(movementState.Position, routeChangedThisFrame);
             }
 
-            return ShipRouteFollower.BuildCommand(
+            MovementCommand command = ShipRouteFollower.BuildCommand(
                 movementState,
                 pathPoints,
                 ref routeFollowState,
                 speedMode,
                 MovementProfile,
                 navigationMap,
+                activeTraversalMask,
                 lookAheadDistance,
                 waypointReachDistance,
                 routeChangedThisFrame,
                 out _);
+
+            return ShipRouteFollower.ApplyConfinedPivotIfNeeded(
+                movementState,
+                command,
+                waypointReachDistance,
+                MovementProfile,
+                navigationMap,
+                activeTraversalMask,
+                Time.fixedDeltaTime,
+                movementModel);
         }
 
         private void ClearRouteState()
         {
             pathPoints.Clear();
             routeFollowState.Reset();
+            activeTraversalMask = null;
             forceStop = false;
             routeChangedThisFrame = false;
         }

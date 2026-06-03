@@ -33,6 +33,13 @@ namespace OA.Simulation.Movement
 
     public static class ShipRouteFollower
     {
+        private const float ConfinedPivotReleaseAngleDegrees = 8f;
+        private const float ConfinedPivotSpeedFraction = 0.25f;
+        private const float ConfinedPivotMinimumSpeedKnots = 0.5f;
+
+        private static readonly Vector2Int[] restrictedNeighborBuffer =
+            new Vector2Int[6];
+
         // Builds one movement command from current motion plus the route's current look-ahead target.
         public static MovementCommand BuildCommand(
             MovementState movementState,
@@ -41,6 +48,7 @@ namespace OA.Simulation.Movement
             MovementSpeedMode speedMode,
             MovementProfileDefinition profile,
             HexMapRuntime map,
+            NavigationTraversalMask traversalMask,
             float lookAheadDistance,
             float arrivalDistance,
             bool routeChanged,
@@ -136,6 +144,164 @@ namespace OA.Simulation.Movement
                 speedLimitKnots,
                 routeChanged,
                 terrainSpeedMultiplier);
+        }
+
+        // Applies the confined-water escape rule after ordinary route following
+        // has already produced the command it would normally execute.
+        public static MovementCommand ApplyConfinedPivotIfNeeded(
+            MovementState movementState,
+            MovementCommand normalCommand,
+            float arrivalDistance,
+            MovementProfileDefinition profile,
+            HexMapRuntime map,
+            NavigationTraversalMask traversalMask,
+            float fixedDeltaTime,
+            ShipMovementModel movementModel)
+        {
+            if (!ShouldTryConfinedPivot(
+                    movementState,
+                    normalCommand,
+                    arrivalDistance,
+                    profile,
+                    map,
+                    traversalMask) ||
+                movementModel == null)
+            {
+                return normalCommand;
+            }
+
+            MovementState normalNextState = movementModel.Step(
+                movementState,
+                normalCommand,
+                profile,
+                fixedDeltaTime);
+
+            if (RouteSegmentUtility.IsSegmentTraversable(
+                    map,
+                    traversalMask,
+                    movementState.Position,
+                    normalNextState.Position))
+            {
+                return normalCommand;
+            }
+
+            return MovementCommand.Pivot(
+                normalCommand.SteeringTarget,
+                normalCommand.RouteChanged);
+        }
+
+        // When a stopped or nearly stopped ship is boxed against restricted
+        // water, a normal forward turn can immediately clip terrain. This only
+        // opens the door to pivoting; ApplyConfinedPivotIfNeeded still proves
+        // the normal turn would fail before allowing the pivot command.
+        private static bool ShouldTryConfinedPivot(
+            MovementState movementState,
+            MovementCommand normalCommand,
+            float arrivalDistance,
+            MovementProfileDefinition profile,
+            HexMapRuntime map,
+            NavigationTraversalMask traversalMask)
+        {
+            if (normalCommand.Intent != MovementIntent.Move ||
+                profile == null ||
+                map == null ||
+                normalCommand.RemainingDistanceWorld <=
+                Mathf.Max(0.001f, arrivalDistance))
+            {
+                return false;
+            }
+
+            Vector2 toTarget =
+                normalCommand.SteeringTarget - movementState.Position;
+            if (toTarget.sqrMagnitude <= 0.0001f)
+            {
+                return false;
+            }
+
+            float physicalSpeedKnots = MovementMath.WorldUnitsPerSecondToKnots(
+                movementState.VelocityWorld.magnitude,
+                profile.metersPerWorldUnit);
+
+            float currentSpeedKnots = Mathf.Max(
+                Mathf.Max(0f, movementState.SpeedKnots),
+                physicalSpeedKnots);
+
+            float pivotSpeedLimitKnots = Mathf.Max(
+                ConfinedPivotMinimumSpeedKnots,
+                Mathf.Max(0f, profile.cruiseSpeedKnots) *
+                ConfinedPivotSpeedFraction);
+
+            if (currentSpeedKnots > pivotSpeedLimitKnots)
+            {
+                return false;
+            }
+
+            float desiredHeading =
+                MovementMath.DirectionToHeadingDegrees(toTarget);
+
+            float headingDelta = Mathf.Abs(Mathf.DeltaAngle(
+                movementState.HeadingDegrees,
+                desiredHeading));
+
+            if (headingDelta <= ConfinedPivotReleaseAngleDegrees)
+            {
+                return false;
+            }
+
+            return IsNearRestrictedWater(
+                map,
+                traversalMask,
+                movementState.Position);
+        }
+
+        private static bool IsNearRestrictedWater(
+            HexMapRuntime map,
+            NavigationTraversalMask traversalMask,
+            Vector2 position)
+        {
+            if (map == null ||
+                !map.TryWorldToCell(position, out Vector2Int cell))
+            {
+                return false;
+            }
+
+            if (IsRestrictedCell(map, traversalMask, cell))
+            {
+                return true;
+            }
+
+            int count = map.GetNeighborCount(
+                cell.x,
+                cell.y,
+                restrictedNeighborBuffer);
+
+            for (int i = 0; i < count; i++)
+            {
+                if (IsRestrictedCell(
+                        map,
+                        traversalMask,
+                        restrictedNeighborBuffer[i]))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsRestrictedCell(
+            HexMapRuntime map,
+            NavigationTraversalMask traversalMask,
+            Vector2Int cell)
+        {
+            if (!map.InBounds(cell.x, cell.y))
+            {
+                return true;
+            }
+
+            return traversalMask != null
+                ? traversalMask.IsBlocked(cell)
+                : !map.IsWalkable(cell.x, cell.y);
         }
 
         // Projects the ship locally forward along its present leg instead of

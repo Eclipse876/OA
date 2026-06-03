@@ -74,5 +74,27 @@ namespace OA.Simulation.Movement
 
             return Mathf.Rad2Deg * (speedWorld / Mathf.Max(0.001f, radiusWorld));
         }
+
+        public static float CalculatePivotTurnRateDegreesPerSecond(
+            MovementProfileDefinition profile,
+            ShipHandlingProfile handling)
+        {
+            if (profile == null)
+            {
+                return 0f;
+            }
+
+            // A boxed-in ship may need to rotate before it can safely translate.
+            // Use a very low maneuvering speed to derive a believable pivot rate,
+            // then apply it without moving the hull forward.
+            float maneuverSpeedKnots = Mathf.Max(
+                0.5f,
+                Mathf.Max(0f, profile.cruiseSpeedKnots) * 0.2f);
+
+            return CalculateTurnRateDegreesPerSecond(
+                maneuverSpeedKnots,
+                profile,
+                handling);
+        }
     }
 }

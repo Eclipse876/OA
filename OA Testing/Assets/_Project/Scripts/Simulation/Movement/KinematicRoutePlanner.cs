@@ -293,6 +293,7 @@ namespace OA.Simulation.Movement
             float predictedTime = 0f;
 
             ShipRoutePoint firstPoint = routeOut.ControlPoints[0];
+            routeOut.TraversalMask = traversalMask;
 
             routeOut.PredictedSamples.Add(new ShipRouteSample(
                 simulatedState.Position,
@@ -309,10 +310,21 @@ namespace OA.Simulation.Movement
                     speedMode,
                     profile,
                     map,
+                    traversalMask,
                     lookAheadDistance,
                     arrivalDistance,
                     step == 0,
                     out RouteSegmentIntent intent);
+
+                command = ShipRouteFollower.ApplyConfinedPivotIfNeeded(
+                    simulatedState,
+                    command,
+                    arrivalDistance,
+                    profile,
+                    map,
+                    traversalMask,
+                    dt,
+                    movementModel);
 
                 MovementState nextState = movementModel.Step(
                     simulatedState,
@@ -320,7 +332,8 @@ namespace OA.Simulation.Movement
                     profile,
                     dt);
 
-                if (!RouteSegmentUtility.IsSegmentTraversable(
+                if (!IsPredictedStepTraversable(
+                    command,
                     map,
                     traversalMask,
                     simulatedState.Position,
@@ -377,6 +390,27 @@ namespace OA.Simulation.Movement
                 ShipRouteFailureReason.PredictionBudgetExceeded,
                 simulatedState.Position,
                 predictedTime);
+        }
+
+        private static bool IsPredictedStepTraversable(
+            MovementCommand command,
+            HexMapRuntime map,
+            NavigationTraversalMask traversalMask,
+            Vector2 start,
+            Vector2 end)
+        {
+            if (command.Intent == MovementIntent.Pivot)
+            {
+                return map != null &&
+                       map.TryWorldToCell(start, out Vector2Int cell) &&
+                       map.IsWalkable(cell.x, cell.y);
+            }
+
+            return RouteSegmentUtility.IsSegmentTraversable(
+                map,
+                traversalMask,
+                start,
+                end);
         }
 
         // Keeps the rendered polyline light enough to draw while preserving every color transition.

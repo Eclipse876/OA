@@ -3,6 +3,7 @@
 // guidance points tell the movement model what to chase, while predicted samples
 // show the physical, inertial track the ship is expected to travel.
 using System.Collections.Generic;
+using OA.Simulation.Navigation;
 using UnityEngine;
 
 namespace OA.Simulation.Movement
@@ -26,7 +27,13 @@ namespace OA.Simulation.Movement
         PredictionBudgetExceeded = 4,
 
         // Internal candidate pruning: another executable route already arrives sooner.
-        SlowerThanBestArrival = 5
+        SlowerThanBestArrival = 5,
+
+        // The ship is moving, but the route is no longer producing useful progress.
+        CandidateStalled = 6,
+
+        // The ship moved too far from the state used to predict the pending route.
+        StalePlanningSnapshot = 7
     }
 
     // A speed-limited guidance point on the geometric route followed by the ship's steering logic.
@@ -83,6 +90,7 @@ namespace OA.Simulation.Movement
         public float TotalDistanceWorld;
         public float EstimatedTimeSeconds;
         public bool IsValid;
+        public NavigationTraversalMask TraversalMask;
 
         public ShipRouteFailureReason FailureReason;
         public Vector2 FailurePosition;
@@ -95,6 +103,7 @@ namespace OA.Simulation.Movement
             TotalDistanceWorld = 0f;
             EstimatedTimeSeconds = 0f;
             IsValid = false;
+            TraversalMask = null;
 
             FailureReason = ShipRouteFailureReason.None;
             FailurePosition = default;
@@ -129,6 +138,7 @@ namespace OA.Simulation.Movement
             TotalDistanceWorld = other.TotalDistanceWorld;
             EstimatedTimeSeconds = other.EstimatedTimeSeconds;
             IsValid = other.IsValid;
+            TraversalMask = other.TraversalMask;
 
             FailureReason = other.FailureReason;
             FailurePosition = other.FailurePosition;
