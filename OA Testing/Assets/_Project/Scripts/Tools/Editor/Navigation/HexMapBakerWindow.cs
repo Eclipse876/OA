@@ -15,9 +15,9 @@ namespace OA.Tools.Editor.Navigation
 
         // Local UI state mirrors the asset until the user decides to bake.
         private int seed = 1;
-        private float obstacleChance = 0.2f;
+        private float obstacleChance = 0.015f;
         private float roughWaterChance = 0f;
-        private int smoothingPasses = 3;
+        private int smoothingPasses = 4;
 
         // Cells we promise to keep usable while generating a test route across the map.
         private Vector2Int guaranteedStart = new Vector2Int(2, 2);
@@ -50,7 +50,7 @@ namespace OA.Tools.Editor.Navigation
             EditorGUILayout.Space(4);
 
             seed = EditorGUILayout.IntField("Seed", Mathf.Max(1, seed));
-            obstacleChance = EditorGUILayout.Slider("Obstacle Chance", obstacleChance, 0.05f, 0.45f);
+            obstacleChance = EditorGUILayout.Slider("Land Coverage", obstacleChance, 0f, 0.14f);
             roughWaterChance = EditorGUILayout.Slider("Rough Water Chance", roughWaterChance, 0f, 0.85f);
             smoothingPasses = EditorGUILayout.IntSlider("Smoothing Passes", smoothingPasses, 0, 8);
 

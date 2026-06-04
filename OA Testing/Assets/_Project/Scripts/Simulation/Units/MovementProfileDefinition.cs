@@ -4,6 +4,7 @@
 using OA.Simulation.Movement;
 using OA.Simulation.Navigation;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace OA.Simulation.Units
 {
@@ -25,7 +26,8 @@ namespace OA.Simulation.Units
 
             [Min(1f)] public float lengthMeters = 150f; // Length of the ship, used for pathfinding and turning radius. Longer ships get longer turning radius.
             [Min(0f)] public float displacementTons = 4000f; // Displacement in tons. Not currently used by movement; kept for stat cards and later systems.
-            public ShipDraftClass draftClass = ShipDraftClass.Shallow; // Navigation category. Shallow ships can enter shallow water; deep ships require deep water.
+            [FormerlySerializedAs("depthClass")]
+            public ShipDraftClass draftClass = ShipDraftClass.Shallow; // Shallow-draft ships can enter reefs/shoals; deeper-draft ships treat them as blocked and slow slightly in Coastal water.
             [Min(0)] public int depthMeters = 5; // Real draft shown on stat cards. Not currently used for navigation.
 
 //Crew Complement-------------------------------------

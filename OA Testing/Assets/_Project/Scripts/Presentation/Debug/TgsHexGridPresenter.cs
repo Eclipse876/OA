@@ -16,12 +16,18 @@ namespace OA.Presentation.Debug
         [SerializeField] private HexMapDefinition previewDefinition;
 
         [Header("Colors")]
-        [SerializeField] private Color shallowWaterColor = new Color(0.06f, 0.28f, 0.32f);
-        [SerializeField] private Color deepWaterColor = new Color(0.01f, 0.04f, 0.16f);
-        [SerializeField] private Color roughWaterColor = new Color(0.06f, 0.16f, 0.34f);
-        [SerializeField] private Color obstacleColor = new Color(0.15f, 0.22f, 0.35f);
-        [SerializeField] private Color borderColor = new Color(0.12f, 0.22f, 0.4f, 0.95f);
-        [SerializeField, Range(0f, 1f)] private float restrictedTintStrength = 0.35f;
+        [SerializeField] private Color shallowWaterColor = new Color(0.22f, 0.68f, 0.66f);
+        [SerializeField] private Color coastalWaterColor = new Color(0.11f, 0.43f, 0.58f);
+        [SerializeField] private Color deepWaterColor = new Color(0.07f, 0.2f, 0.46f);
+        [SerializeField] private Color veryDeepWaterColor = new Color(0.04f, 0.11f, 0.3f);
+        [SerializeField] private Color abyssalWaterColor = new Color(0.03f, 0.04f, 0.13f);
+        [SerializeField] private Color roughWaterColor = new Color(0.37f, 0.52f, 0.62f);
+        [SerializeField] private Color landColor = new Color(0.32f, 0.5f, 0.25f);
+        [SerializeField] private Color hillColor = new Color(0.42f, 0.47f, 0.24f);
+        [SerializeField] private Color largeHillColor = new Color(0.52f, 0.37f, 0.2f);
+        [SerializeField] private Color mountainColor = new Color(0.36f, 0.29f, 0.27f);
+        [SerializeField] private Color peakColor = new Color(0.2f, 0.2f, 0.23f);
+        [SerializeField] private Color borderColor = new Color(0.09f, 0.16f, 0.27f, 0.95f);
 
         private bool configured;
         private HexMapRuntime lastMap;
@@ -41,8 +47,14 @@ namespace OA.Presentation.Debug
             }
 
             lastMap = map;
+            ApplyDefaultPalette();
             ConfigureIfNeeded(map);
             ApplyMapToGrid(map, blockedMask);
+        }
+
+        private void OnEnable()
+        {
+            ApplyDefaultPalette();
         }
 
         // Asks TGS which cell is under a world position.
@@ -148,23 +160,15 @@ namespace OA.Presentation.Debug
 
                     if (terrainBlocked)
                     {
-                        cellColor = obstacleColor;
-                    }
-                    else if (map.GetDepthClass(x, y) == WaterDepthClass.Shallow)
-                    {
-                        cellColor = shallowWaterColor;
+                        cellColor = GetLandColor(map.GetLandElevationClass(x, y));
                     }
                     else
                     {
+                        cellColor = GetWaterColor(map.GetDepthClass(x, y));
                         cellColor = Color.Lerp(
-                            deepWaterColor,
+                            cellColor,
                             roughWaterColor,
-                            Mathf.InverseLerp(1f, 3.2f, map.GetMoveCost(x, y)));
-                    }
-
-                    if (routeBlocked && !terrainBlocked)
-                    {
-                        cellColor = Color.Lerp(cellColor, obstacleColor, restrictedTintStrength);
+                            Mathf.InverseLerp(1f, 6.5f, map.GetMoveCost(x, y)));
                     }
 
                     tgs.CellSetColor(tgsCellIndex, cellColor);
@@ -175,6 +179,57 @@ namespace OA.Presentation.Debug
             }
 
             map.MarkWorldCentersReady();
+        }
+
+        private Color GetWaterColor(WaterDepthClass depthClass)
+        {
+            switch (depthClass)
+            {
+                case WaterDepthClass.Shallow:
+                    return shallowWaterColor;
+                case WaterDepthClass.Coastal:
+                    return coastalWaterColor;
+                case WaterDepthClass.VeryDeep:
+                    return veryDeepWaterColor;
+                case WaterDepthClass.Abyssal:
+                    return abyssalWaterColor;
+                default:
+                    return deepWaterColor;
+            }
+        }
+
+        private Color GetLandColor(LandElevationClass elevationClass)
+        {
+            switch (elevationClass)
+            {
+                case LandElevationClass.Hill:
+                    return hillColor;
+                case LandElevationClass.LargeHill:
+                    return largeHillColor;
+                case LandElevationClass.Mountain:
+                    return mountainColor;
+                case LandElevationClass.Peak:
+                    return peakColor;
+                default:
+                    return landColor;
+            }
+        }
+
+        // Keeps stale scene/Inspector color values from surviving code palette changes.
+        private void ApplyDefaultPalette()
+        {
+            shallowWaterColor = new Color(0.22f, 0.68f, 0.66f);
+            coastalWaterColor = new Color(0.11f, 0.43f, 0.58f);
+            deepWaterColor = new Color(0.07f, 0.2f, 0.46f);
+            veryDeepWaterColor = new Color(0.04f, 0.11f, 0.3f);
+            abyssalWaterColor = new Color(0.03f, 0.04f, 0.13f);
+            roughWaterColor = new Color(0.37f, 0.52f, 0.62f);
+            landColor = new Color(0.32f, 0.5f, 0.25f);
+            hillColor = new Color(0.42f, 0.47f, 0.24f);
+            largeHillColor = new Color(0.52f, 0.37f, 0.2f);
+            mountainColor = new Color(0.36f, 0.29f, 0.27f);
+            peakColor = new Color(0.2f, 0.2f, 0.23f);
+            borderColor = new Color(0.09f, 0.16f, 0.27f, 0.95f);
         }
     }
 }

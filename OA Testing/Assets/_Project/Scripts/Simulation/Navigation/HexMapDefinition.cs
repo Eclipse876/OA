@@ -23,10 +23,11 @@ namespace OA.Simulation.Navigation
         // Bake knobs remembered here so editor/runtime rerolls can match the same map style.
         [Header("Bake Metadata")]
         [SerializeField, Min(1)] private int seed = 1;
-        [SerializeField, Range(0.05f, 0.45f)] private float obstacleChance = 0.2f;
+        [SerializeField, Range(0f, 0.14f)] private float obstacleChance = 0.015f;
         [SerializeField] private WaterDepthClass[] depthClass;
+        [SerializeField] private LandElevationClass[] landElevationClass;
         [SerializeField, Range(0f, 0.85f)] private float roughWaterChance = 0f;
-        [SerializeField, Range(0, 8)] private int smoothingPasses = 3;
+        [SerializeField, Range(0, 8)] private int smoothingPasses = 4;
 
         // Flat arrays because x/y cells are cheaper to store as one big list.
         [Header("Cell Data")]
@@ -45,6 +46,7 @@ namespace OA.Simulation.Navigation
         public bool[] CellBlocked => blocked;
         public float[] MoveCost => moveCost;
         public WaterDepthClass[] DepthClass => depthClass;
+        public LandElevationClass[] LandElevationClasses => landElevationClass;
 
         // Keeps inspector values sane and serialized arrays matching the current map size.
         private void OnValidate()
@@ -54,7 +56,7 @@ namespace OA.Simulation.Navigation
             cellSize = Mathf.Max(0.05f, cellSize);
 
             seed = Mathf.Max(1, seed);
-            obstacleChance = Mathf.Clamp(obstacleChance, 0.05f, 0.45f);
+            obstacleChance = Mathf.Clamp(obstacleChance, 0f, 0.14f);
             roughWaterChance = Mathf.Clamp(roughWaterChance, 0f, 0.85f);
             smoothingPasses = Mathf.Clamp(smoothingPasses, 0, 8);
 
@@ -68,6 +70,10 @@ namespace OA.Simulation.Navigation
             blocked = ResizeBoolArray(blocked, count, false);
             moveCost = ResizeFloatArray(moveCost, count, 1f);
             depthClass = ResizeDepthArray(depthClass, count, WaterDepthClass.Deep);
+            landElevationClass = ResizeLandElevationArray(
+                landElevationClass,
+                count,
+                LandElevationClass.Land);
 
             for (int i = 0; i < moveCost.Length; i++)
             {
@@ -93,7 +99,7 @@ namespace OA.Simulation.Navigation
             cellSize = runtime.CellSize;
 
             seed = Mathf.Max(1, bakedSeed);
-            obstacleChance = Mathf.Clamp(bakedObstacleChance, 0.05f, 0.45f);
+            obstacleChance = Mathf.Clamp(bakedObstacleChance, 0f, 0.14f);
             roughWaterChance = Mathf.Clamp(bakedRoughWaterChance, 0f, 0.85f);
             smoothingPasses = Mathf.Clamp(bakedSmoothingPasses, 0, 8);
 
@@ -102,6 +108,10 @@ namespace OA.Simulation.Navigation
             Array.Copy(runtime.Blocked, blocked, Mathf.Min(runtime.Blocked.Length, blocked.Length));
             Array.Copy(runtime.MoveCost, moveCost, Mathf.Min(runtime.MoveCost.Length, moveCost.Length));
             Array.Copy(runtime.DepthClass, depthClass, Mathf.Min(runtime.DepthClass.Length, depthClass.Length));
+            Array.Copy(
+                runtime.LandElevationClasses,
+                landElevationClass,
+                Mathf.Min(runtime.LandElevationClasses.Length, landElevationClass.Length));
         }
 
         // Builds a runtime map from saved asset data so simulation code can mutate it safely.
@@ -131,6 +141,29 @@ namespace OA.Simulation.Navigation
                 }
             }
             
+            return result;
+        }
+
+        private static LandElevationClass[] ResizeLandElevationArray(
+            LandElevationClass[] source,
+            int count,
+            LandElevationClass defaultValue)
+        {
+            LandElevationClass[] result = new LandElevationClass[count];
+            if (source != null)
+            {
+                Array.Copy(source, result, Mathf.Min(source.Length, count));
+            }
+
+            if (source == null || source.Length < count)
+            {
+                int start = source == null ? 0 : source.Length;
+                for (int i = start; i < count; i++)
+                {
+                    result[i] = defaultValue;
+                }
+            }
+
             return result;
         }
 

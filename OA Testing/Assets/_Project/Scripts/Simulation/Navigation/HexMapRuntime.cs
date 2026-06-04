@@ -15,6 +15,7 @@ namespace OA.Simulation.Navigation
         private readonly bool[] blocked;
         private readonly float[] moveCost;
         private readonly WaterDepthClass[] depthClass;
+        private readonly LandElevationClass[] landElevationClass;
         private readonly Vector2[] worldCenters;
 
         // Spatial lookup for repeated world-to-cell queries during route smoothing and prediction.
@@ -35,6 +36,7 @@ namespace OA.Simulation.Navigation
         public bool[] Blocked => blocked;
         public float[] MoveCost => moveCost;
         public WaterDepthClass[] DepthClass => depthClass;
+        public LandElevationClass[] LandElevationClasses => landElevationClass;
 
         // Creates a clamped, empty map and defaults every cell to normal movement cost.
         public HexMapRuntime(int width, int height, float cellSize)
@@ -47,12 +49,14 @@ namespace OA.Simulation.Navigation
             blocked = new bool[count];
             moveCost = new float[count];
             depthClass = new WaterDepthClass[count];
+            landElevationClass = new LandElevationClass[count];
             worldCenters = new Vector2[count];
 
             for (int i = 0; i < count; i++)
             {
                 moveCost[i] = 1f;
                 depthClass[i] = WaterDepthClass.Deep;
+                landElevationClass[i] = LandElevationClass.Land;
             }
         }
 
@@ -69,6 +73,7 @@ namespace OA.Simulation.Navigation
             bool[] defBlocked = definition.CellBlocked;
             float[] srcMoveCost = definition.MoveCost;
             WaterDepthClass[] srcDepthClass = definition.DepthClass;
+            LandElevationClass[] srcLandElevationClass = definition.LandElevationClasses;
             int count = map.Width * map.Height;
 
             if (defBlocked != null)
@@ -92,6 +97,16 @@ namespace OA.Simulation.Navigation
                 for(int i = 0; i < copy; i++)
                 {
                     map.depthClass[i] = srcDepthClass[i];
+                }
+            }
+
+            if (srcLandElevationClass != null)
+            {
+                int copy = Mathf.Min(srcLandElevationClass.Length, count);
+
+                for (int i = 0; i < copy; i++)
+                {
+                    map.landElevationClass[i] = srcLandElevationClass[i];
                 }
             }
 
@@ -197,6 +212,44 @@ namespace OA.Simulation.Navigation
 
             depthClass[index] = value;
             Version++;
+        }
+
+        public LandElevationClass GetLandElevationClass(int x, int y)
+        {
+            if (!InBounds(x, y))
+            {
+                return LandElevationClass.Land;
+            }
+
+            return landElevationClass[GetIndex(x, y)];
+        }
+
+        public void SetLandElevationClass(int x, int y, LandElevationClass value)
+        {
+            if (!InBounds(x, y))
+            {
+                return;
+            }
+
+            int index = GetIndex(x, y);
+            if (landElevationClass[index] == value)
+            {
+                return;
+            }
+
+            landElevationClass[index] = value;
+            Version++;
+        }
+
+        public MapTileType GetTileType(int x, int y)
+        {
+            if (IsBlocked(x, y))
+            {
+                return NavigationTerrainRules.ToMapTileType(
+                    GetLandElevationClass(x, y));
+            }
+
+            return NavigationTerrainRules.ToMapTileType(GetDepthClass(x, y));
         }
 
         // Stores the world-space center for a rendered cell.

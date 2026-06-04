@@ -500,13 +500,11 @@ namespace OA.Integrations.AStar
             int y,
             ShipDraftClass draftClass)
         {
-            if (map.IsBlocked(x, y))
-            {
-                return true;
-            }
-
-            return draftClass == ShipDraftClass.Deep &&
-                   map.GetDepthClass(x, y) == WaterDepthClass.Shallow;
+            return NavigationTerrainRules.IsForbiddenForShip(
+                map,
+                x,
+                y,
+                draftClass);
         }
 
         private MaskTraversalProvider GetTraversalProvider(
@@ -592,9 +590,11 @@ namespace OA.Integrations.AStar
                     return 1f;
                 }
 
-                return Mathf.Max(
-                    1f,
-                    mask.Map.GetMoveCost(cell.x, cell.y));
+                return NavigationTerrainRules.GetTraversalCostMultiplier(
+                    mask.Map,
+                    cell.x,
+                    cell.y,
+                    mask.Profile.DraftClass);
             }
 
             public uint GetConnectionCost(

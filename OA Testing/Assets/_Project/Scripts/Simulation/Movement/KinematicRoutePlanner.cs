@@ -401,9 +401,15 @@ namespace OA.Simulation.Movement
         {
             if (command.Intent == MovementIntent.Pivot)
             {
-                return map != null &&
-                       map.TryWorldToCell(start, out Vector2Int cell) &&
-                       map.IsWalkable(cell.x, cell.y);
+                if (map == null ||
+                    !map.TryWorldToCell(start, out Vector2Int cell))
+                {
+                    return false;
+                }
+
+                return traversalMask != null
+                    ? !traversalMask.IsBlocked(cell)
+                    : map.IsWalkable(cell.x, cell.y);
             }
 
             return RouteSegmentUtility.IsSegmentTraversable(

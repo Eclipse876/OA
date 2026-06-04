@@ -135,7 +135,10 @@ namespace OA.Simulation.Movement
 
             float terrainSpeedMultiplier = GetTerrainSpeedMultiplier(
                 map,
-                movementState.Position);
+                movementState.Position,
+                profile != null
+                    ? profile.draftClass
+                    : ShipDraftClass.Shallow);
 
             return MovementCommand.Move(
                 steeringTarget,
@@ -446,7 +449,8 @@ namespace OA.Simulation.Movement
 
         private static float GetTerrainSpeedMultiplier(
             HexMapRuntime map,
-            Vector2 position)
+            Vector2 position,
+            ShipDraftClass draftClass)
         {
             if (map == null ||
                 !map.TryWorldToCell(position, out Vector2Int cell))
@@ -454,7 +458,11 @@ namespace OA.Simulation.Movement
                 return 1f;
             }
 
-            return 1f / Mathf.Max(1f, map.GetMoveCost(cell.x, cell.y));
+            return NavigationTerrainRules.GetSpeedMultiplier(
+                map,
+                cell.x,
+                cell.y,
+                draftClass);
         }
     }
 }

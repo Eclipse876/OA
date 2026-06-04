@@ -74,6 +74,13 @@ namespace OA.Presentation.Debug
         [SerializeField, Range(0.02f, 0.4f)] private float finalWaypointSafeOffsetFraction = 0.12f;
         [SerializeField, Range(0.02f, 0.4f)] private float finalWaypointOpenOffsetFraction = 0.35f;
 
+        [Header("Hover Tile Readout")]
+        [SerializeField] private bool showHoverTileReadout = true;
+        [SerializeField, Min(8)] private int hoverReadoutFontSize = 11;
+        [SerializeField] private Vector2 hoverReadoutMargin = new Vector2(16f, 28f);
+        [SerializeField] private Color hoverReadoutTextColor = new Color(1f, 0.9f, 0.68f, 0.96f);
+        [SerializeField] private Color hoverReadoutShadowColor = new Color(0.08f, 0.04f, 0.16f, 0.9f);
+
         // Reused generator/path buffers so click-to-move does not allocate more than it needs to.
         private readonly System.Random seedRng = new System.Random();
         private readonly HexMapGenerator generator = new HexMapGenerator();
@@ -134,6 +141,8 @@ namespace OA.Presentation.Debug
         private ShipRouteFailureReason pendingLastFailureReason;
         private Vector2 pendingLastFailurePosition;
         private float pendingLastFailureTimeSeconds;
+        private GUIStyle hoverReadoutStyle;
+        private GUIStyle hoverReadoutShadowStyle;
 
         public HexMapRuntime CurrentMap => map;
         public INavigationPathService CurrentPathService => pathService;
@@ -175,6 +184,46 @@ namespace OA.Presentation.Debug
             RetirePassedWaypoints();
             HandleRouteCompletion();
             UpdateActiveRouteLine();
+        }
+
+        private void OnGUI()
+        {
+            if (!showHoverTileReadout ||
+                map == null ||
+                sceneCamera == null ||
+                !TryGetHoveredCell(out Vector2Int cell))
+            {
+                return;
+            }
+
+            EnsureHoverReadoutStyles();
+
+            string[] lines = BuildHoverReadoutLines(cell);
+            float lineHeight = hoverReadoutFontSize + 3f;
+            float width = 360f;
+            float height = lineHeight * lines.Length;
+            float x = Mathf.Max(0f, hoverReadoutMargin.x);
+            float y = Mathf.Max(
+                hoverReadoutMargin.y,
+                Screen.height - hoverReadoutMargin.y - height);
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                Rect shadowRect = new Rect(
+                    x + 1f,
+                    y + i * lineHeight + 1f,
+                    width,
+                    lineHeight);
+
+                Rect textRect = new Rect(
+                    x,
+                    y + i * lineHeight,
+                    width,
+                    lineHeight);
+
+                GUI.Label(shadowRect, lines[i], hoverReadoutShadowStyle);
+                GUI.Label(textRect, lines[i], hoverReadoutStyle);
+            }
         }
 
 
@@ -502,13 +551,7 @@ namespace OA.Presentation.Debug
                 return;
             }
 
-            // Convert mouse screen position to the 2D world plane the grid lives on.
-            Vector3 world = sceneCamera.ScreenToWorldPoint(new Vector3(mouseScreen.x, mouseScreen.y, -sceneCamera.transform.position.z));
-            Vector2 world2 = new Vector2(world.x, world.y);
-
-            Vector2Int targetCell;
-            bool hasCell = gridPresenter.TryWorldToCell(world2, out targetCell);
-            if (!hasCell && !map.TryWorldToCell(world2, out targetCell))
+            if (!TryScreenToWorldCell(mouseScreen, out Vector2Int targetCell, out Vector2 world2))
             {
                 return;
             }
@@ -518,6 +561,149 @@ namespace OA.Presentation.Debug
                 world2,
                 appendWaypoint,
                 insertWaypointAtFront);
+        }
+
+        private bool TryGetHoveredCell(out Vector2Int cell)
+        {
+            cell = default;
+
+            if (!TryGetPointerScreenPosition(out Vector2 screenPosition))
+            {
+                return false;
+            }
+
+            return TryScreenToWorldCell(screenPosition, out cell, out _);
+        }
+
+        private bool TryGetPointerScreenPosition(out Vector2 screenPosition)
+        {
+#if ENABLE_INPUT_SYSTEM
+            if (Mouse.current == null)
+            {
+                screenPosition = default;
+                return false;
+            }
+
+            screenPosition = Mouse.current.position.ReadValue();
+            return true;
+#else
+            screenPosition = Input.mousePosition;
+            return true;
+#endif
+        }
+
+        private bool TryScreenToWorldCell(
+            Vector2 screenPosition,
+            out Vector2Int cell,
+            out Vector2 world2)
+        {
+            cell = default;
+            world2 = default;
+
+            if (sceneCamera == null || map == null)
+            {
+                return false;
+            }
+
+            Vector3 world = sceneCamera.ScreenToWorldPoint(
+                new Vector3(
+                    screenPosition.x,
+                    screenPosition.y,
+                    -sceneCamera.transform.position.z));
+
+            world2 = new Vector2(world.x, world.y);
+
+            bool hasCell = gridPresenter != null &&
+                           gridPresenter.TryWorldToCell(world2, out cell);
+
+            return hasCell || map.TryWorldToCell(world2, out cell);
+        }
+
+        private void EnsureHoverReadoutStyles()
+        {
+            if (hoverReadoutStyle != null &&
+                hoverReadoutStyle.fontSize == hoverReadoutFontSize)
+            {
+                return;
+            }
+
+            hoverReadoutStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = hoverReadoutFontSize,
+                normal = { textColor = hoverReadoutTextColor },
+                alignment = TextAnchor.UpperLeft,
+                clipping = TextClipping.Clip,
+                wordWrap = false
+            };
+
+            hoverReadoutShadowStyle = new GUIStyle(hoverReadoutStyle)
+            {
+                normal = { textColor = hoverReadoutShadowColor }
+            };
+        }
+
+        private string[] BuildHoverReadoutLines(Vector2Int cell)
+        {
+            MapTileType tileType = map.GetTileType(cell.x, cell.y);
+            WaterDepthClass depthClass = map.GetDepthClass(cell.x, cell.y);
+
+            return new[]
+            {
+                $"Coordinates: {cell.x}, {cell.y}",
+                $"Type: {FormatTileType(tileType)}",
+                $"Depth: {(map.IsBlocked(cell.x, cell.y) ? "N/A" : FormatDepthType(depthClass))}",
+                $"Effects: {DescribeTileEffects(cell, tileType, depthClass)}"
+            };
+        }
+
+        private static string FormatTileType(MapTileType tileType)
+        {
+            switch (tileType)
+            {
+                case MapTileType.VeryDeep:
+                    return "Very Deep";
+                case MapTileType.LargeHill:
+                    return "Large Hill";
+                default:
+                    return tileType.ToString();
+            }
+        }
+
+        private static string FormatDepthType(WaterDepthClass depthClass)
+        {
+            return depthClass == WaterDepthClass.VeryDeep
+                ? "Very Deep"
+                : depthClass.ToString();
+        }
+
+        private string DescribeTileEffects(
+            Vector2Int cell,
+            MapTileType tileType,
+            WaterDepthClass depthClass)
+        {
+            if (NavigationTerrainRules.IsLand(tileType))
+            {
+                return "Blocked for ships";
+            }
+
+            float moveCost = map.GetMoveCost(cell.x, cell.y);
+            string roughSuffix = moveCost > 1.01f
+                ? $"; rough speed x{1f / moveCost:0.00}"
+                : string.Empty;
+
+            switch (depthClass)
+            {
+                case WaterDepthClass.Shallow:
+                    return $"Shallow draft only; sub stealth x{NavigationTerrainRules.GetSubmarineStealthMultiplier(depthClass):0.00}{roughSuffix}";
+                case WaterDepthClass.Coastal:
+                    return $"Deep draft speed x{NavigationTerrainRules.GetSpeedMultiplier(map, cell.x, cell.y, ShipDraftClass.Deep):0.00}; sub stealth x{NavigationTerrainRules.GetSubmarineStealthMultiplier(depthClass):0.00}{roughSuffix}";
+                case WaterDepthClass.VeryDeep:
+                    return $"Sub stealth x{NavigationTerrainRules.GetSubmarineStealthMultiplier(depthClass):0.00}{roughSuffix}";
+                case WaterDepthClass.Abyssal:
+                    return $"Sub loiter; stealth x{NavigationTerrainRules.GetSubmarineStealthMultiplier(depthClass):0.00}{roughSuffix}";
+                default:
+                    return $"Normal ocean; sub stealth x{NavigationTerrainRules.GetSubmarineStealthMultiplier(depthClass):0.00}{roughSuffix}";
+            }
         }
 
         // Turns a clicked cell into either an immediate destination or a queued waypoint.

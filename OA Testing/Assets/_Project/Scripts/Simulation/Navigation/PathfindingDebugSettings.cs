@@ -20,8 +20,8 @@ namespace OA.Simulation.Navigation
         // Generation inputs used when the debug reroll button/hotkey fires.
         [Header("Reroll Inputs")]
         [Min(0)] public int fixedSeed = 1;
-        [Range(0.05f, 0.45f)] public float obstacleChance = 0.2f;
+        [Range(0f, 0.14f)] public float obstacleChance = 0.015f;
         [Range(0f, 0.85f)] public float roughWaterChance = 0f;
-        [Range(0, 8)] public int smoothingPasses = 3;
+        [Range(0, 8)] public int smoothingPasses = 4;
     }
 }

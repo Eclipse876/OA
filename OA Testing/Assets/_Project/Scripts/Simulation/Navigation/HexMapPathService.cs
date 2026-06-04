@@ -279,7 +279,7 @@ namespace OA.Simulation.Navigation
 
                 float tentativeScore =
                     gScore[currentIndex] +
-                    CalculateTraversalCost(current, neighbor);
+                    CalculateTraversalCost(current, neighbor, mask);
 
                 if (searchVersionByCell[neighborIndex] == searchVersion &&
                     tentativeScore >= gScore[neighborIndex])
@@ -334,13 +334,20 @@ namespace OA.Simulation.Navigation
 
         // Cost to enter a neighboring cell. Rough water raises move cost, so A*
         // naturally prefers calmer water when the detour is worth it.
-        private float CalculateTraversalCost(Vector2Int from, Vector2Int to)
+        private float CalculateTraversalCost(
+            Vector2Int from,
+            Vector2Int to,
+            NavigationTraversalMask mask)
         {
             Vector2 fromWorld = activeMap.GetWorldCenter(from.x, from.y);
             Vector2 toWorld = activeMap.GetWorldCenter(to.x, to.y);
 
             float distance = Vector2.Distance(fromWorld, toWorld);
-            float moveCost = activeMap.GetMoveCost(to.x, to.y);
+            float moveCost = NavigationTerrainRules.GetTraversalCostMultiplier(
+                activeMap,
+                to.x,
+                to.y,
+                mask.Profile.DraftClass);
 
             return distance * Mathf.Max(1f, moveCost);
         }
@@ -500,13 +507,11 @@ namespace OA.Simulation.Navigation
             int y,
             ShipDraftClass draftClass)
         {
-            if (map.IsBlocked(x, y))
-            {
-                return true;
-            }
-
-            return draftClass == ShipDraftClass.Deep &&
-                   map.GetDepthClass(x, y) == WaterDepthClass.Shallow;
+            return NavigationTerrainRules.IsForbiddenForShip(
+                map,
+                x,
+                y,
+                draftClass);
         }
 
         // Cache key for one immutable mask. Safety radius is reduced to cell

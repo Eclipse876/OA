@@ -297,11 +297,17 @@ MonoBehaviour:
   deepWaterTile: {fileID: 11400000, guid: 18feb46b92ca7854baab2ca54fb4dc3a, type: 2}
   roughWaterTile: {fileID: 11400000, guid: f12ce85544d1d6f4183728b1b405e06a, type: 2}
   obstacleTile: {fileID: 11400000, guid: 19488b58fe65aa44da270ed068c26566, type: 2}
-  shallowWaterColor: {r: 0.06, g: 0.28, b: 0.32, a: 1}
-  deepWaterColor: {r: 0.01, g: 0.04, b: 0.16, a: 1}
-  roughWaterColor: {r: 0.06, g: 0.16, b: 0.34, a: 1}
-  obstacleColor: {r: 0.627451, g: 0.3215686, b: 0.1764706, a: 1}
-  restrictedTintStrength: 0.35
+  shallowWaterColor: {r: 0.22, g: 0.68, b: 0.66, a: 1}
+  coastalWaterColor: {r: 0.11, g: 0.43, b: 0.58, a: 1}
+  deepWaterColor: {r: 0.07, g: 0.2, b: 0.46, a: 1}
+  veryDeepWaterColor: {r: 0.04, g: 0.11, b: 0.3, a: 1}
+  abyssalWaterColor: {r: 0.03, g: 0.04, b: 0.13, a: 1}
+  roughWaterColor: {r: 0.37, g: 0.52, b: 0.62, a: 1}
+  landColor: {r: 0.32, g: 0.5, b: 0.25, a: 1}
+  hillColor: {r: 0.42, g: 0.47, b: 0.24, a: 1}
+  largeHillColor: {r: 0.52, g: 0.37, b: 0.2, a: 1}
+  mountainColor: {r: 0.36, g: 0.29, b: 0.27, a: 1}
+  peakColor: {r: 0.2, g: 0.2, b: 0.23, a: 1}
   clearBeforePaint: 1
   roughThreshold: 1.01
 --- !u!156049354 &184174280
@@ -128896,6 +128902,11 @@ MonoBehaviour:
   minimumConstrainedTurnSpeedScale: 0.1
   planningBudgetMillisecondsPerFrame: 2
   severeTurnSpeedFraction: 0.35
+  showHoverTileReadout: 1
+  hoverReadoutFontSize: 11
+  hoverReadoutMargin: {x: 16, y: 28}
+  hoverReadoutTextColor: {r: 1, g: 0.9, b: 0.68, a: 0.96}
+  hoverReadoutShadowColor: {r: 0.08, g: 0.04, b: 0.16, a: 0.9}
   generateFromDefinitionMetadata: 1
 --- !u!1 &1481991051
 GameObject:

@@ -74,7 +74,13 @@ namespace OA.Simulation.Navigation
 
                 highestMoveCost = Mathf.Max(
                     highestMoveCost,
-                    map.GetMoveCost(cell.x, cell.y));
+                    NavigationTerrainRules.GetTraversalCostMultiplier(
+                        map,
+                        cell.x,
+                        cell.y,
+                        mask != null
+                            ? mask.Profile.DraftClass
+                            : ShipDraftClass.Shallow));
             }
 
             return true;
