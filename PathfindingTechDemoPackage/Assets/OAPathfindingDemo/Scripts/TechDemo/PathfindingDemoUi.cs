@@ -146,7 +146,8 @@ namespace OA.TechDemo
             CreateLabeledInput(obstacleRow.transform, "Obstacle % (0.05-0.45)", out _obstacleInput, 76f);
             _obstacleInput.text = "0.20";
 
-            CreateButtonRow(parent, "Generate Random Map", HandleGenerateMap, 188f, 30f);
+            CreateButtonRow(parent, "Reroll Map", HandleRerollMap, 132f, 30f);
+            CreateButtonRow(parent, "Generate Seeded Map", HandleGenerateMap, 188f, 30f);
         }
 
         private void CreateTraitRows(Transform parent)
@@ -205,6 +206,18 @@ namespace OA.TechDemo
             }
 
             _controller.GenerateMap(seed, obstacleChance);
+            SyncMapInputs(_controller.CurrentSeed, _controller.CurrentObstacleChance);
+        }
+
+        private void HandleRerollMap()
+        {
+            if (!TryParseFloat(_obstacleInput.text, out float obstacleChance))
+            {
+                SetStatus("Obstacle chance must be a valid decimal between 0.05 and 0.45.");
+                return;
+            }
+
+            _controller.GenerateMap(_controller.GetRandomSeed(), obstacleChance);
             SyncMapInputs(_controller.CurrentSeed, _controller.CurrentObstacleChance);
         }
 

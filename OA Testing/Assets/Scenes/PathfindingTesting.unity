@@ -297,6 +297,134 @@ MonoBehaviour:
   deepWaterTile: {fileID: 11400000, guid: 18feb46b92ca7854baab2ca54fb4dc3a, type: 2}
   roughWaterTile: {fileID: 11400000, guid: f12ce85544d1d6f4183728b1b405e06a, type: 2}
   obstacleTile: {fileID: 11400000, guid: 19488b58fe65aa44da270ed068c26566, type: 2}
+  useAssignedTextureSprites: 0
+  oceanTextureSprites: []
+  shallowWaterTextureSprites:
+  - {fileID: 6867543103178279793, guid: c84781e99f87e6239bdb87478fb70716, type: 3}
+  - {fileID: 462715826366628549, guid: 3bf4b37cb4a758d4ea595b18b8f9c4b1, type: 3}
+  - {fileID: 5227038062918493797, guid: e58066d9593c937622c77f0b8731c89f, type: 3}
+  - {fileID: 6120696874807466891, guid: 0d8d7023b44cacac49556184bfe6b22e, type: 3}
+  - {fileID: 9015257783351269447, guid: fa3a3027c2d4bc042474ce04cd4fe8c5, type: 3}
+  - {fileID: 247245936812394100, guid: 82183615f440f2e0f72cea568b336f41, type: 3}
+  - {fileID: 5050909187252001097, guid: 8060c21512df47b804de3edbadecf86a, type: 3}
+  - {fileID: 2303074858055589695, guid: 3f6465f1e9f6a54cd748215c42561ec8, type: 3}
+  - {fileID: 1134140712457861778, guid: a096727249fa437d15dac75ce6dcfd41, type: 3}
+  - {fileID: 3877886720208887212, guid: 5dc8e7d3908ebf2dc44aa3c92f7eada7, type: 3}
+  coastalWaterTextureSprites:
+  - {fileID: 45416507836869492, guid: 43af8c11aaf880869ae5b39c909b825a, type: 3}
+  - {fileID: 7224331871323416990, guid: 5a2c0c10b3c1c84f89c6999421214af9, type: 3}
+  - {fileID: 3031629250850784250, guid: 13757b7e916248dcecd2c320accb4f89, type: 3}
+  - {fileID: 5973543606962290630, guid: 79c0d514b8e93dca6c7feb0b53f34767, type: 3}
+  - {fileID: 3278251535081615680, guid: 7c4fb73b80be517d1e89d372be762260, type: 3}
+  - {fileID: 674775247445295813, guid: cd1b254dea475c5046cc357c77b6a59d, type: 3}
+  - {fileID: 7788758856112586034, guid: 1989cd296134a85f288589262972c23a, type: 3}
+  - {fileID: 6601378926017808081, guid: 663046f07fb7bf749fa77ed77f6c5fab, type: 3}
+  - {fileID: 3768053770545117814, guid: f4e568c46046f408469d81f4830871a2, type: 3}
+  - {fileID: 5252555561169374477, guid: ac51e34debcd0f66295ffca3fd92e96f, type: 3}
+  deepWaterTextureSprites:
+  - {fileID: 7191280800846626801, guid: 2009ee0643cabc2e492ae86999675a76, type: 3}
+  - {fileID: 1704408730157382184, guid: 41927bc8cb75344292ecf2e494acbb47, type: 3}
+  - {fileID: 2488059896178388756, guid: 362602091a8f3d4153de2d3370169e48, type: 3}
+  - {fileID: 8782096047114327540, guid: 872bb6a7e62c18655d7a474ccbfdb439, type: 3}
+  - {fileID: 7105555399903593648, guid: 2764dd183da48e7762696ae96ea0e824, type: 3}
+  - {fileID: 355702040685558208, guid: 3c1e33ea656d8ca8653c8cd8096001b3, type: 3}
+  - {fileID: 4146867331603644235, guid: a0f4ac07758700b4da91944c53626155, type: 3}
+  - {fileID: 2374589748303895900, guid: e59f2118b21a60d80903524121ad0a01, type: 3}
+  - {fileID: 1659856804546373743, guid: e7f57e29978589c6fef6ad23daf6265a, type: 3}
+  - {fileID: 3142604564459119214, guid: 5543f322cfe00dfa68651fdea8bfa960, type: 3}
+  veryDeepWaterTextureSprites:
+  - {fileID: 8861725996261343938, guid: 3d1fd74bbb316fdbc1334b08dea0d0f5, type: 3}
+  - {fileID: 3930335004493397255, guid: 79614305a131043b4c62503c1755e63f, type: 3}
+  - {fileID: 5362332006300504897, guid: ca8da798d05fec56660f6d778b75cd11, type: 3}
+  - {fileID: 2068033972634996259, guid: fc2b19ad9f0be2a63ded0204d52ad149, type: 3}
+  - {fileID: 5653516994170035408, guid: c539527215f68893fd08bf238f12227d, type: 3}
+  - {fileID: 4602354421989057088, guid: 9f179c4aa952afb26981005b8a296e14, type: 3}
+  - {fileID: 4087186585008082566, guid: 1fa36ed30e70bf7355eb6c3bf84bde4f, type: 3}
+  - {fileID: 3410673613377818942, guid: 5ee7774e7b8f93a0039ae5fb2b952ce4, type: 3}
+  - {fileID: 7322873569949124180, guid: 748ccbcf8ccc0a2ca53a37a60262803d, type: 3}
+  - {fileID: 8036803272348736728, guid: 509108896bb77344aeb6f633b792b6a6, type: 3}
+  abyssalWaterTextureSprites:
+  - {fileID: 172565653476096850, guid: aeff71adac721e28c40d6da31c4aca67, type: 3}
+  - {fileID: 5739687457096161329, guid: aa9f4bff312b658b947b4d58aeb58a7b, type: 3}
+  - {fileID: 1233910024793504162, guid: f01a85d5849fbacff1254a2e95943b96, type: 3}
+  - {fileID: 4385251940900551211, guid: 76162e3c0d22445f41caa7a95b10c92a, type: 3}
+  - {fileID: 2878000642116631949, guid: 0c044d1256d544353a4a0a3c1fc8b24a, type: 3}
+  - {fileID: 1669254103571286915, guid: 33fdd899d44d7bca86c117f208d493a9, type: 3}
+  - {fileID: 4802674254835247548, guid: 72be77887b88ca87acfd7c12024782a9, type: 3}
+  - {fileID: 5916100771542611827, guid: 0c6a4142be819ffbf26fa0d88b6be68d, type: 3}
+  - {fileID: 7045818105123760216, guid: 9d39451bf123258813856df947ec153c, type: 3}
+  - {fileID: 4717676302318723432, guid: 758badb2df29cfb13f96242905cb927b, type: 3}
+  roughWaterTextureSprites:
+  - {fileID: 694178273997921993, guid: 6db310a26216ce4767b4a2bac8c32b62, type: 3}
+  - {fileID: 802038248067481436, guid: adf6cc0f3e678dec0af853f9d32e54dd, type: 3}
+  - {fileID: 774079910402017945, guid: f6ad3e13a28599d8947b6342c70ca7f8, type: 3}
+  - {fileID: 942863703215010021, guid: de0112c14a6af8a3694dbcfd46baf31b, type: 3}
+  - {fileID: 694987162328613076, guid: 979e2995454de86840adb04f63a8d62b, type: 3}
+  - {fileID: 9095563567878847865, guid: b0407ff5e8e206365b6bc54e0c8a3e1c, type: 3}
+  - {fileID: 438288287952025633, guid: a7f631888555f2772ecd49d52a7ee7c3, type: 3}
+  - {fileID: 3733584193811310499, guid: de45c80f252569168767bd700e416acf, type: 3}
+  - {fileID: 1242484833543282197, guid: c51fc45f3d8b266269372e68ff2001ae, type: 3}
+  - {fileID: 7869602822669395461, guid: a1b3e55b0f128a9be3ce11e2b9ff3e09, type: 3}
+  landTextureSprites:
+  - {fileID: 2617627779453345961, guid: 0df6f9cf7abdbb2091b099d7ecab6bfb, type: 3}
+  - {fileID: 2935455866429616083, guid: a707def5bb235b46950b97769b8fc0a1, type: 3}
+  - {fileID: 688280418665699536, guid: 4f1303bd112cf3ad7cb02d99d5e54d77, type: 3}
+  - {fileID: 7532184198393830942, guid: 8d4c3639a4cc6347f24f580a759637ab, type: 3}
+  - {fileID: 1974293029035260034, guid: f83f55ef43167540a71b3f5a2c0bb9bf, type: 3}
+  - {fileID: 1208645427451359281, guid: 5df5beba629afd0855ca736a82b3ebf3, type: 3}
+  - {fileID: 890272035446384506, guid: ded864af046e8ff3b90270e81c8398a0, type: 3}
+  - {fileID: 5820645429510065697, guid: 00be8850a91b2aa02afe7e93fef51b01, type: 3}
+  - {fileID: 6587563072540734664, guid: 51a2b1a6d2b964412c15147fa6c43383, type: 3}
+  - {fileID: 3466549558000898506, guid: b253d3e7fe6ee2d255d6f0a3cb821520, type: 3}
+  hillTextureSprites:
+  - {fileID: 1373343160163638698, guid: ac514475fbcbc397f97afc20adcaee27, type: 3}
+  - {fileID: 3381223790730993459, guid: d8e683d73544ac5271a4b362ebe0aaf3, type: 3}
+  - {fileID: 3318300158337958629, guid: 2d59369c400a53e076bda397b0c66ef0, type: 3}
+  - {fileID: 4189562283821657601, guid: 7d972054ce375cb0df2229fca31a1ad0, type: 3}
+  - {fileID: 8864632683679585726, guid: 66016dee9725e6bcc89f813521070dfc, type: 3}
+  - {fileID: 2437308992381826619, guid: 9cbd6cd4c86f73737f0e7ac22293d474, type: 3}
+  - {fileID: 2010325188051692810, guid: c856219e025de48fafa294c8e79d2c37, type: 3}
+  - {fileID: 2388454559408059684, guid: 0adf5d1f97dc58df59b704dd9d3ce83b, type: 3}
+  - {fileID: 257484764078548008, guid: 6d0421d7387765b1d7e78cfb44d468e9, type: 3}
+  - {fileID: 6379087383277665904, guid: 47831f13756a5f141e7f91dac559f4ef, type: 3}
+  largeHillTextureSprites:
+  - {fileID: 7605795583129285954, guid: 24ce89556b519670fd4d166ab72dabef, type: 3}
+  - {fileID: 4216509569368744890, guid: 982e3b6e4514a0d2aa9f9233b5d69c21, type: 3}
+  - {fileID: 228295418157964780, guid: 8cbfd74f3fbd71a2c485a398efdab591, type: 3}
+  - {fileID: 771151443590111747, guid: 1b9009c588e282a145fefcb18dc59171, type: 3}
+  - {fileID: 2284803538326466837, guid: a2c4e42df26658dee09d5d0431b25420, type: 3}
+  - {fileID: 2878633091025827515, guid: eb66997a2bf9906f0b2689a91bb70a6f, type: 3}
+  - {fileID: 8362642018566430822, guid: 9c3e2fd29ad852ffe68cce0d194e5298, type: 3}
+  - {fileID: 756869072733618949, guid: 0dd6edd2e826056d80eb187c5e775c60, type: 3}
+  - {fileID: 5307361533710530230, guid: ab57d7daaad56b41ed655c7c87dd7bbd, type: 3}
+  - {fileID: 6394548045604473288, guid: 32dbcb2e8b399736e1b1bb9ea4877dbf, type: 3}
+  mountainTextureSprites:
+  - {fileID: 4016169681292727357, guid: acc266ea7354f96154d026b790d05856, type: 3}
+  - {fileID: 8899118914440972291, guid: 70fb6cd5f304da157f80a680f94622be, type: 3}
+  - {fileID: 7088719099110576521, guid: 36d920f2d719226fc399b783cab30b51, type: 3}
+  - {fileID: 191215389087049386, guid: 7eed247552370e6a602fbd0396e170a0, type: 3}
+  - {fileID: 4891849334119236633, guid: 32e3177bc78041f1636211390d1525e8, type: 3}
+  - {fileID: 946624627510307807, guid: 5502784466e93c35357d291884ee3244, type: 3}
+  - {fileID: 6856333752499484694, guid: bcc21d9e604f690cd3052e7166875c8a, type: 3}
+  - {fileID: 8648937528472705076, guid: 1b0112b846bc06dcb1b95201dec23345, type: 3}
+  - {fileID: 6110457064316151497, guid: 420e80baf11a3dbd5355f8d878241168, type: 3}
+  - {fileID: 313460392206066307, guid: d845c1adbf6cbccba0aa82860c9f30dd, type: 3}
+  peakTextureSprites:
+  - {fileID: 7042251000632356186, guid: 26f79b5320a5a7ce9d1d03b0d73513d9, type: 3}
+  - {fileID: 3597460656434441088, guid: 18f23e0faa548d8875603c52f90df826, type: 3}
+  - {fileID: 814696772743684224, guid: 22da900064d4e3fd1dd0c332d46c3acb, type: 3}
+  - {fileID: 2581017828078414529, guid: 1a9b2a0079eb897867896d2fe0ed461e, type: 3}
+  - {fileID: 1768329772206163996, guid: 9f18ab749163e97be2ef75290983e0b6, type: 3}
+  - {fileID: 4756199205869228841, guid: 1e1627ce203b10e1e4c7ff36e3c0b97d, type: 3}
+  - {fileID: 4146229649990953980, guid: 088d08f6bc26d84d520a20792a45f88d, type: 3}
+  - {fileID: 8251891032573173919, guid: 2699896f08a4350c9009b2ac0f82138a, type: 3}
+  - {fileID: 7129669155574115034, guid: 54bba2e054d771a5a3a2a84996d18230, type: 3}
+  - {fileID: 4809735041996575608, guid: 7ae37da8bb5547b6eb81a586106f8960, type: 3}
+  useProceduralTextureOverlay: 1
+  proceduralTextureSize: 128
+  proceduralTextureVariants: 10
+  proceduralTextureOpacity: 0.75
+  proceduralOverlaySortingOrderOffset: 1
   shallowWaterColor: {r: 0.22, g: 0.68, b: 0.66, a: 1}
   coastalWaterColor: {r: 0.11, g: 0.43, b: 0.58, a: 1}
   deepWaterColor: {r: 0.07, g: 0.2, b: 0.46, a: 1}

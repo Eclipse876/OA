@@ -19,6 +19,7 @@ namespace OA.TechDemo
         private const float DefaultObstacleChance = 0.2f;
         private const float DefaultRoughWaterChance = 0.22f;
         private const int DefaultSmoothingPasses = 4;
+        private const int CenterSpawnGateRadius = 3;
 
         private readonly Plane _groundPlane = new Plane(Vector3.up, Vector3.zero);
         private readonly Random _seedRng = new Random();
@@ -43,6 +44,7 @@ namespace OA.TechDemo
         public MovementProfileDefinition MovementProfile => _archetype != null ? _archetype.movementProfile : null;
         public int CurrentSeed => _currentSeed;
         public float CurrentObstacleChance => _currentObstacleChance;
+        private static Vector2Int CenterSpawnCell => new Vector2Int(MapWidth / 2, MapHeight / 2);
 
         private void Awake()
         {
@@ -77,7 +79,7 @@ namespace OA.TechDemo
             _currentObstacleChance = Mathf.Clamp(obstacleChance, 0.05f, 0.45f);
             _lastDestinationCell = null;
 
-            Vector2Int guaranteedStart = new Vector2Int(3, 3);
+            Vector2Int guaranteedStart = CenterSpawnCell;
             Vector2Int guaranteedGoal = new Vector2Int(MapWidth - 4, MapHeight - 4);
 
             _mapGenerator.Generate(
@@ -87,7 +89,8 @@ namespace OA.TechDemo
                 DefaultRoughWaterChance,
                 DefaultSmoothingPasses,
                 guaranteedStart,
-                guaranteedGoal);
+                guaranteedGoal,
+                CenterSpawnGateRadius);
 
             _mapVisual.Refresh(_map);
 
@@ -95,7 +98,7 @@ namespace OA.TechDemo
             _shipAgent.WarpTo(_map.GridToWorld(spawnCell.x, spawnCell.y, ShipY));
             UpdatePathLine(null);
 
-            SetStatus($"Map generated. Seed: {_currentSeed}. Left-click a tile to route the ship.");
+            SetStatus($"Map rerolled. Ship spawned inside the center gate. Seed: {_currentSeed}. Left-click a tile to route the ship.");
         }
 
         public void OnMovementTraitsChanged()

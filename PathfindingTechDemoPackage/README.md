@@ -4,6 +4,7 @@ This package gives you a functional Unity tech demo for:
 - Random grid terrain generation
 - A* ship pathfinding with safety radius
 - Live runtime tuning of ship movement traits
+- A portfolio-friendly center spawn gate that prevents land from spawning on the ship
 
 ## Folder To Copy Into A New Unity Project
 
@@ -29,7 +30,8 @@ The demo auto-creates:
 
 ## Runtime Controls
 
-- `Generate Random Map` button: creates a new map with current seed and obstacle rate.
+- `Reroll Map` button: creates a new random seed, regenerates the map, and respawns the ship at the center gate.
+- `Generate Seeded Map` button: rebuilds the map from the visible seed and obstacle rate.
 - `Left-click` open tile: finds and follows a path to that destination.
 - Trait rows (`Set` buttons): modify movement profile live:
   - Max Speed
@@ -44,6 +46,8 @@ The demo auto-creates:
 ## Notes
 
 - Safety radius is used by pathfinding clearance checks, so larger values can intentionally invalidate tight routes.
+- The ship spawns at the center of the map. The generator clears a protected spawn gate before route guarantees are applied, so rerolled land cannot cover the ship.
+- For the oldest-working pathfinding comparison build, use the sibling `PathfindingLegacyTechDemoPackage`.
 - This is intentionally a prototype architecture designed for easy extension. Add new movement traits by adding another trait row in:
   - `Assets/OAPathfindingDemo/Scripts/TechDemo/PathfindingDemoUi.cs`
   - and corresponding logic in:

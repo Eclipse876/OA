@@ -23,7 +23,7 @@ namespace OA.Simulation.Navigation
         // Bake knobs remembered here so editor/runtime rerolls can match the same map style.
         [Header("Bake Metadata")]
         [SerializeField, Min(1)] private int seed = 1;
-        [SerializeField, Range(0f, 0.14f)] private float obstacleChance = 0.015f;
+        [SerializeField, Range(0f, 0.14f)] private float obstacleChance = 0.016f;
         [SerializeField] private WaterDepthClass[] depthClass;
         [SerializeField] private LandElevationClass[] landElevationClass;
         [SerializeField, Range(0f, 0.85f)] private float roughWaterChance = 0f;

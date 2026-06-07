@@ -15,6 +15,6 @@ MonoBehaviour:
   enableRuntimeReroll: 0
   enableRerollHotkey: 1
   fixedSeed: 1
-  obstacleChance: 0.015
+  obstacleChance: 0.016
   roughWaterChance: 0
   smoothingPasses: 4

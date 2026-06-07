@@ -20,13 +20,14 @@ namespace OA.Simulation.Navigation
         private const float OceanShallowChance = 0.0004f;
         private const float CoastalAroundFeatureChance = 0.92f;
         private const float CoastalShelfChance = 0.62f;
-        private const float OffshoreDepthNoiseScale = 22f;
-        private const float OffshoreDepthDetailScale = 9f;
-        private const float VeryDeepDepthScore = 0.5f;
-        private const float AbyssalDepthScore = 0.68f;
+        private const float OffshoreDepthNoiseScale = 26f;
+        private const float OffshoreDepthDetailScale = 13f;
+        private const float VeryDeepDepthScore = 0.46f;
+        private const float AbyssalDepthScore = 0.7f;
         private const float NearLandVeryDeepDepthScore = 0.84f;
         private const float NearLandAbyssalDepthScore = 0.94f;
         private const float ReefNoiseScale = 8f;
+        private const float OpenOceanReefNoiseThreshold = 0.84f;
         private const float MinimumLandCoverage = 0f;
         private const float MaximumLandCoverage = 0.14f;
 
@@ -264,27 +265,27 @@ namespace OA.Simulation.Navigation
         {
             double roll = random.NextDouble();
 
-            if (roll < 0.08)
+            if (roll < 0.04)
             {
                 return 1;
             }
 
-            if (roll < 0.28)
+            if (roll < 0.16)
             {
-                return random.Next(2, 8);
+                return random.Next(3, 12);
             }
 
-            if (roll < 0.72)
+            if (roll < 0.62)
             {
-                return random.Next(8, 30);
+                return random.Next(12, 44);
             }
 
-            if (roll < 0.94)
+            if (roll < 0.9)
             {
-                return random.Next(30, 90);
+                return random.Next(44, 120);
             }
 
-            return random.Next(90, 180);
+            return random.Next(120, 240);
         }
 
         private static int CalculateIslandSpacing(float landCoverage)
@@ -294,7 +295,7 @@ namespace OA.Simulation.Navigation
                 MaximumLandCoverage,
                 landCoverage);
 
-            return Mathf.RoundToInt(Mathf.Lerp(13f, 5f, density));
+            return Mathf.RoundToInt(Mathf.Lerp(17f, 7f, density));
         }
 
         private bool HasBlockedWithinRadius(
@@ -426,10 +427,6 @@ namespace OA.Simulation.Navigation
 
                         nextDepth[index] = RollShallowWater(
                                 landDistance,
-                                x,
-                                y,
-                                reefNoiseX,
-                                reefNoiseY,
                                 random)
                             ? WaterDepthClass.Shallow
                             : WaterDepthClass.Deep;
@@ -476,8 +473,18 @@ namespace OA.Simulation.Navigation
                 }
             }
 
+            SoftenOceanDepthTransitions(map, nextDepth, nearestLandDistance);
+            ApplyOpenOceanReefs(
+                map,
+                nextDepth,
+                nearestLandDistance,
+                reefNoiseX,
+                reefNoiseY,
+                random);
             ReduceIsolatedWaterDepths(map, nextDepth);
+            ExpandCoastalWaterAroundShallows(map, nextDepth);
             SmoothLandElevations(map, nextLandElevation);
+            PromoteRarePeakCores(map, nextLandElevation, random);
 
             for (int y = 0; y < map.Height; y++)
             {
@@ -492,10 +499,6 @@ namespace OA.Simulation.Navigation
 
         private static bool RollShallowWater(
             int nearestLandDistance,
-            int x,
-            int y,
-            float reefNoiseX,
-            float reefNoiseY,
             System.Random random)
         {
             double roll = random.NextDouble();
@@ -510,12 +513,7 @@ namespace OA.Simulation.Navigation
                 return roll < NearCoastShallowChance;
             }
 
-            float reefNoise = Mathf.PerlinNoise(
-                (x + reefNoiseX) / ReefNoiseScale,
-                (y + reefNoiseY) / ReefNoiseScale);
-
-            return reefNoise > 0.88f ||
-                   roll < OceanShallowChance;
+            return false;
         }
 
         private static WaterDepthClass SampleOffshoreDepth(
@@ -561,6 +559,162 @@ namespace OA.Simulation.Navigation
             return WaterDepthClass.Deep;
         }
 
+        private void SoftenOceanDepthTransitions(
+            HexMapRuntime map,
+            WaterDepthClass[] depthClasses,
+            int[] nearestLandDistance)
+        {
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    if (map.IsBlocked(x, y))
+                    {
+                        continue;
+                    }
+
+                    int index = map.GetIndex(x, y);
+                    WaterDepthClass depthClass = depthClasses[index];
+
+                    if (depthClass == WaterDepthClass.Shallow ||
+                        depthClass == WaterDepthClass.Coastal)
+                    {
+                        continue;
+                    }
+
+                    int deepNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        WaterDepthClass.Deep);
+                    int veryDeepNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        WaterDepthClass.VeryDeep);
+                    int abyssalNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        WaterDepthClass.Abyssal);
+
+                    if (depthClass == WaterDepthClass.Abyssal)
+                    {
+                        if (nearestLandDistance[index] < FullOffshoreDepthDistance ||
+                            veryDeepNeighbors + abyssalNeighbors < 2 ||
+                            deepNeighbors >= 4)
+                        {
+                            depthClasses[index] = WaterDepthClass.VeryDeep;
+                        }
+
+                        continue;
+                    }
+
+                    if (depthClass == WaterDepthClass.VeryDeep)
+                    {
+                        if (deepNeighbors >= 5 &&
+                            veryDeepNeighbors <= 1 &&
+                            abyssalNeighbors == 0)
+                        {
+                            depthClasses[index] = WaterDepthClass.Deep;
+                        }
+
+                        continue;
+                    }
+
+                    if (nearestLandDistance[index] >= FullOffshoreDepthDistance &&
+                        (veryDeepNeighbors >= 3 ||
+                         (abyssalNeighbors > 0 && veryDeepNeighbors > 0)))
+                    {
+                        depthClasses[index] = WaterDepthClass.VeryDeep;
+                    }
+                }
+            }
+        }
+
+        private void ApplyOpenOceanReefs(
+            HexMapRuntime map,
+            WaterDepthClass[] depthClasses,
+            int[] nearestLandDistance,
+            float reefNoiseX,
+            float reefNoiseY,
+            System.Random random)
+        {
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int index = map.GetIndex(x, y);
+                    if (map.IsBlocked(x, y) ||
+                        nearestLandDistance[index] <= 2 ||
+                        depthClasses[index] != WaterDepthClass.Deep)
+                    {
+                        continue;
+                    }
+
+                    int deepNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        WaterDepthClass.Deep);
+                    int veryDeepNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        WaterDepthClass.VeryDeep);
+                    int abyssalNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        WaterDepthClass.Abyssal);
+
+                    if (deepNeighbors < 3 ||
+                        veryDeepNeighbors > 1 ||
+                        abyssalNeighbors > 0)
+                    {
+                        continue;
+                    }
+
+                    float reefNoise = Mathf.PerlinNoise(
+                        (x + reefNoiseX) / ReefNoiseScale,
+                        (y + reefNoiseY) / ReefNoiseScale);
+
+                    if (reefNoise > OpenOceanReefNoiseThreshold ||
+                        random.NextDouble() < OceanShallowChance)
+                    {
+                        depthClasses[index] = WaterDepthClass.Shallow;
+                    }
+                }
+            }
+        }
+
+        private void ExpandCoastalWaterAroundShallows(
+            HexMapRuntime map,
+            WaterDepthClass[] depthClasses)
+        {
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int index = map.GetIndex(x, y);
+                    if (map.IsBlocked(x, y) ||
+                        depthClasses[index] != WaterDepthClass.Deep ||
+                        !HasNeighborDepth(map, depthClasses, x, y, WaterDepthClass.Shallow))
+                    {
+                        continue;
+                    }
+
+                    depthClasses[index] = WaterDepthClass.Coastal;
+                }
+            }
+        }
+
         private LandElevationClass RollLandElevation(
             HexMapRuntime map,
             int x,
@@ -569,34 +723,51 @@ namespace OA.Simulation.Navigation
         {
             int blockedNeighbors = CountBlockedNeighbors(map, x, y);
             float interiorFactor = Mathf.InverseLerp(1f, 6f, blockedNeighbors);
-            float variation = (float)random.NextDouble();
-            float elevationScore = 0.16f + interiorFactor * 0.58f + variation * 0.32f;
+            float interiorSquared = interiorFactor * interiorFactor;
+            float interiorCubed = interiorSquared * interiorFactor;
+
+            float peakChance = blockedNeighbors >= 5
+                ? 0.006f * interiorCubed
+                : 0f;
+            float mountainChance = blockedNeighbors >= 4
+                ? Mathf.Lerp(0.008f, 0.065f, interiorSquared)
+                : 0f;
+            float largeHillChance = Mathf.Lerp(0.055f, 0.2f, interiorFactor);
+            float hillChance = Mathf.Lerp(0.32f, 0.43f, interiorFactor);
+
+            if (blockedNeighbors <= 2)
+            {
+                largeHillChance *= 0.45f;
+                hillChance *= 0.82f;
+            }
 
             if (blockedNeighbors <= 1)
             {
-                elevationScore *= 0.68f;
-            }
-            else if (blockedNeighbors <= 2)
-            {
-                elevationScore *= 0.82f;
+                largeHillChance *= 0.25f;
+                hillChance *= 0.65f;
             }
 
-            if (elevationScore >= 0.93f)
+            double roll = random.NextDouble();
+
+            if (roll < peakChance)
             {
                 return LandElevationClass.Peak;
             }
 
-            if (elevationScore >= 0.78f)
+            roll -= peakChance;
+            if (roll < mountainChance)
             {
                 return LandElevationClass.Mountain;
             }
 
-            if (elevationScore >= 0.62f)
+            roll -= mountainChance;
+            if (roll < largeHillChance)
             {
                 return LandElevationClass.LargeHill;
             }
 
-            return elevationScore >= 0.42f
+            roll -= largeHillChance;
+            return roll < hillChance
                 ? LandElevationClass.Hill
                 : LandElevationClass.Land;
         }
@@ -640,6 +811,57 @@ namespace OA.Simulation.Navigation
                             smoothed,
                             (int)LandElevationClass.Land,
                             (int)LandElevationClass.Peak);
+                    }
+                }
+            }
+        }
+
+        private void PromoteRarePeakCores(
+            HexMapRuntime map,
+            LandElevationClass[] elevationClasses,
+            System.Random random)
+        {
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int index = map.GetIndex(x, y);
+                    if (!map.IsBlocked(x, y) ||
+                        elevationClasses[index] != LandElevationClass.Mountain ||
+                        CountBlockedNeighbors(map, x, y) < 5)
+                    {
+                        continue;
+                    }
+
+                    int highlandNeighbors = 0;
+                    int neighborCount = map.GetNeighborCount(x, y, neighborBuffer);
+
+                    for (int i = 0; i < neighborCount; i++)
+                    {
+                        Vector2Int n = neighborBuffer[i];
+                        if (!map.IsBlocked(n.x, n.y))
+                        {
+                            continue;
+                        }
+
+                        LandElevationClass neighborElevation =
+                            elevationClasses[map.GetIndex(n.x, n.y)];
+
+                        if ((int)neighborElevation >= (int)LandElevationClass.LargeHill)
+                        {
+                            highlandNeighbors++;
+                        }
+                    }
+
+                    if (highlandNeighbors < 3)
+                    {
+                        continue;
+                    }
+
+                    float peakChance = highlandNeighbors >= 5 ? 0.12f : 0.05f;
+                    if (random.NextDouble() < peakChance)
+                    {
+                        elevationClasses[index] = LandElevationClass.Peak;
                     }
                 }
             }

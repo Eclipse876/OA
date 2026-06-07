@@ -16,7 +16,9 @@ namespace OA.TechDemo
             float roughWaterChance,
             int smoothingPasses,
             Vector2Int guaranteedStart,
-            Vector2Int guaranteedGoal)
+            Vector2Int guaranteedGoal,
+            int guaranteedStartRadius = 2,
+            int guaranteedGoalRadius = 2)
         {
             var random = new System.Random(seed);
             float clampedObstacleChance = Mathf.Clamp(obstacleChance, 0.05f, 0.45f);
@@ -40,8 +42,8 @@ namespace OA.TechDemo
                 ApplySmoothingPass(map);
             }
 
-            ClearCircle(map, guaranteedStart, 2);
-            ClearCircle(map, guaranteedGoal, 2);
+            ClearCircle(map, guaranteedStart, guaranteedStartRadius);
+            ClearCircle(map, guaranteedGoal, guaranteedGoalRadius);
 
             EnsureGuaranteedPath(map, guaranteedStart, guaranteedGoal);
         }

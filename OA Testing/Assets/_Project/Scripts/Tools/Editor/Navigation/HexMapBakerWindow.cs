@@ -15,7 +15,7 @@ namespace OA.Tools.Editor.Navigation
 
         // Local UI state mirrors the asset until the user decides to bake.
         private int seed = 1;
-        private float obstacleChance = 0.015f;
+        private float obstacleChance = 0.016f;
         private float roughWaterChance = 0f;
         private int smoothingPasses = 4;
 
