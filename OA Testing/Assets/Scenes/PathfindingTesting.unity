@@ -128709,7 +128709,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Gameplay::CameraController
   speed: 20
   allowMiddleMouseDrag: 1
-  zoomSpeed: 100
+  zoomSpeed: 250
   minimumOrthographicSize: 2
   maximumOrthographicSize: 100
 --- !u!114 &508521160
@@ -129030,6 +129030,15 @@ MonoBehaviour:
   minimumConstrainedTurnSpeedScale: 0.1
   planningBudgetMillisecondsPerFrame: 2
   severeTurnSpeedFraction: 0.35
+  minimumPredictionTimeBudgetSeconds: 8
+  maximumPredictionTimeBudgetSeconds: 60
+  predictionTimeBudgetMultiplier: 2.5
+  predictionStagnationSeconds: 4
+  maximumRecoveryGeometryBases: 1
+  maxPendingSnapshotRestarts: 1
+  pendingSnapshotMaxDriftWorld: 1.25
+  finalWaypointSafeOffsetFraction: 0.12
+  finalWaypointOpenOffsetFraction: 0.35
   showHoverTileReadout: 1
   hoverReadoutFontSize: 11
   hoverReadoutMargin: {x: 16, y: 28}

@@ -11,7 +11,7 @@
   <Project Path="OA.Tests.EditMode.csproj" />
   <Project Path="OA.Integrations.AStar.csproj" />
   <Project Path="DrawingEditor.csproj" />
+  <Project Path="OA.Tools.Editor.csproj" />
   <Project Path="OA.Foundation.csproj" />
   <Project Path="DrawingPackageToolsEditor.csproj" />
-  <Project Path="OA.Tools.Editor.csproj" />
 </Solution>
