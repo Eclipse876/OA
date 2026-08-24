@@ -18,7 +18,7 @@ namespace OA.Simulation.Units
 //Prototype Scale-------------------------------------
         [Header("Prototype Scale")]
 
-            [Min(0.001f)] public float metersPerWorldUnit = 100f; // Converts the real ship values to the Unity scale.
+            [Min(0.001f)] public float metersPerWorldUnit = 31.034483f; // Converts real ship values to the Unity scale.
             [Min(0.001f)] public float simulationSecondsPerRealSecond = 60f; // Time compression. Higher values make the simulation run faster, lower makes it run slower.
 
 //Ship Dimensions-------------------------------------
@@ -70,7 +70,7 @@ namespace OA.Simulation.Units
 //Pathing Safety-------------------------------------
         [Header("Pathing Safety")]
 
-            [Min(0f)] public float safetyRadius = 1f; // The radius around the ship that pathfinding considers when plotting a course.
+            [Min(0f)] public float safetyRadius = 0f; // Extra clearance added beyond the ship's real half-length.
                                                       // Higher values = safer paths, but less efficient routes.
 
 //Arrival-------------------------------------
@@ -90,5 +90,13 @@ namespace OA.Simulation.Units
             [Min(0f)] public float turningRadius = 2.5f;
 
 //-------------------------------------
+        public float LengthWorldUnits =>
+            Mathf.Max(1f, lengthMeters) /
+            Mathf.Max(0.001f, metersPerWorldUnit);
+
+        public float HalfLengthWorldUnits => LengthWorldUnits * 0.5f;
+
+        public float NavigationSafetyRadiusWorld =>
+            HalfLengthWorldUnits + Mathf.Max(0f, safetyRadius);
     }
 }

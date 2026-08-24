@@ -1,1 +1,111 @@
-VisualElement {}
+.oa-hud-root {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    flex-direction: column;
+}
+
+.oa-top-bar {
+    height: 56px;
+    margin-left: 10px;
+    margin-right: 10px;
+    margin-top: 8px;
+    padding-left: 14px;
+    padding-right: 14px;
+    flex-direction: row;
+    align-items: center;
+}
+
+.oa-brand-group {
+    width: 180px;
+}
+
+.oa-top-status {
+    width: 170px;
+    margin-left: 18px;
+}
+
+.oa-middle-row {
+    flex-grow: 1;
+    flex-direction: row;
+}
+
+.oa-map-space {
+    flex-grow: 1;
+}
+
+.oa-command-bar {
+    width: 126px;
+    margin-left: 10px;
+    margin-top: 12px;
+    margin-bottom: 12px;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 10px;
+}
+
+.oa-command-button {
+    height: 34px;
+    margin-top: 8px;
+}
+
+.oa-right-rail {
+    width: 282px;
+    margin-right: 10px;
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+
+.oa-panel {
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+.oa-panel-header {
+    height: 18px;
+    flex-direction: row;
+    justify-content: space-between;
+}
+
+.oa-minimap-panel {
+    height: 300px;
+}
+
+.oa-mini-map {
+    width: 260px;
+    height: 248px;
+    margin-top: 8px;
+}
+
+.oa-mini-map-frame {
+    position: absolute;
+}
+
+.oa-tile-panel {
+    margin-top: 12px;
+    min-height: 150px;
+}
+
+.oa-readout-line {
+    margin-top: 6px;
+}
+
+.oa-readout-wrap {
+    white-space: normal;
+}
+
+.oa-bottom-bar {
+    height: 38px;
+    margin-left: 10px;
+    margin-right: 10px;
+    margin-bottom: 8px;
+    padding-left: 14px;
+    padding-right: 14px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}

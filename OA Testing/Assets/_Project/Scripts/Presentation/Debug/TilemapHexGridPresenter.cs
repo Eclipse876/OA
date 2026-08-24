@@ -16,6 +16,10 @@ namespace OA.Presentation.Debug
             [SerializeField] private Tilemap tilemap;
             [SerializeField] private HexMapDefinition previewDefinition;
 
+        [Header("Scale")]
+            [SerializeField] private Vector2 baseHexCellSize = new Vector2(0.8659766f, 1f);
+            [SerializeField] private Vector3 baseGridLocalScale = Vector3.one;
+
         // Tiles used for normal water, rough water, and blocked cells.
         [Header("Tiles")]
             [SerializeField] private TileBase shallowWaterTile;
@@ -88,6 +92,7 @@ namespace OA.Presentation.Debug
             }
 
             lastMap = map;
+            ConfigureGridForMapScale(map);
             ApplyDefaultPalette();
             _ = blockedMask; // Safety masks affect pathing, not the base terrain palette.
             bool paintProceduralOverlay = useProceduralTextureOverlay;
@@ -205,6 +210,52 @@ namespace OA.Presentation.Debug
 
             map.MarkWorldCentersReady();
             tilemap.CompressBounds();
+        }
+
+        private void ConfigureGridForMapScale(HexMapRuntime map)
+        {
+            if (map == null || tilemap == null || tilemap.layoutGrid == null)
+            {
+                return;
+            }
+
+            Grid grid = tilemap.layoutGrid;
+            Vector3 previousCellSize = grid.cellSize;
+            float z = Mathf.Approximately(previousCellSize.z, 0f)
+                ? 1f
+                : previousCellSize.z;
+
+            Vector3 desiredCellSize = new Vector3(
+                Mathf.Max(0.05f, baseHexCellSize.x),
+                Mathf.Max(0.05f, baseHexCellSize.y),
+                z);
+
+            if ((previousCellSize - desiredCellSize).sqrMagnitude > 0.000001f)
+            {
+                grid.cellSize = desiredCellSize;
+            }
+
+            Transform gridTransform = grid.transform;
+            gridTransform.localScale = baseGridLocalScale;
+
+            float baseCenterDistance = MeasureHorizontalCellCenterDistance(grid);
+            if (baseCenterDistance <= 0.0001f)
+            {
+                return;
+            }
+
+            float scale = Mathf.Max(0.05f, map.CellSize) / baseCenterDistance;
+            gridTransform.localScale = new Vector3(
+                baseGridLocalScale.x * scale,
+                baseGridLocalScale.y * scale,
+                baseGridLocalScale.z);
+        }
+
+        private static float MeasureHorizontalCellCenterDistance(Grid grid)
+        {
+            Vector3 left = grid.GetCellCenterWorld(Vector3Int.zero);
+            Vector3 right = grid.GetCellCenterWorld(new Vector3Int(1, 0, 0));
+            return Vector3.Distance(left, right);
         }
 
         private void OnEnable()

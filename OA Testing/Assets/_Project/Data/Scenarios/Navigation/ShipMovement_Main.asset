@@ -12,9 +12,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 83c3a2876a43f2e459b08be8927c04b4, type: 3}
   m_Name: ShipMovement_Main
   m_EditorClassIdentifier: OA.Simulation::OA.Simulation.Units.MovementProfileDefinition
-  metersPerWorldUnit: 100
+  metersPerWorldUnit: 31.034483
   simulationSecondsPerRealSecond: 60
-  lengthMeters: 150
+  lengthMeters: 126
   displacementTons: 40000
   draftClass: 0
   depthMeters: 5
@@ -37,7 +37,7 @@ MonoBehaviour:
   debugTurnSpeedLossFactor: 0.015
   debugTightTurnSpeedMultiplier: 0.65
   debugMinimumTacticalDiameterLengths: 0.25
-  safetyRadius: 1
+  safetyRadius: 0
   stoppingDistance: 0.1
   maxSpeed: 8
   acceleration: 10

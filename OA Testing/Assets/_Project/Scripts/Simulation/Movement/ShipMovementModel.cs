@@ -9,6 +9,8 @@ namespace OA.Simulation.Movement
 {
     public sealed class ShipMovementModel
     {
+        private const float SteeringHeadingDeadbandDegrees = 1.25f;
+
         // Advances one ship for one frame. The route planner uses this exact method
         // during prediction so rendered routes and live movement share one authority.
         public MovementState Step(
@@ -106,7 +108,10 @@ namespace OA.Simulation.Movement
                     state.HeadingDegrees,
                     desiredHeading);
 
-                desiredRudder = Mathf.Clamp(headingDelta / 45f, -1f, 1f);
+                desiredRudder = Mathf.Abs(headingDelta) <=
+                                SteeringHeadingDeadbandDegrees
+                    ? 0f
+                    : Mathf.Clamp(headingDelta / 45f, -1f, 1f);
             }
 
             float rudderRate = 2f /

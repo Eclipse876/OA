@@ -16,6 +16,7 @@ namespace OA.Presentation.Units
     {
         [SerializeField] private UnitArchetypeDefinition archetype;
         [SerializeField] private bool initializeOnStart = true;
+        [SerializeField] private SpriteRenderer hullRenderer;
 
 
         [Header("Speed Mode")]
@@ -23,8 +24,8 @@ namespace OA.Presentation.Units
 
         // Steering knobs tune how far along the planned course the ship aims.
         [Header("Steering (Forward Only)")]
-            [SerializeField, Min(0.01f)] private float lookAheadDistance = 1.2f;
-            [SerializeField, Min(0.001f)] private float waypointReachDistance = 0.18f;
+            [SerializeField, Min(0.01f)] private float lookAheadDistance = 8f;
+            [SerializeField, Min(0.001f)] private float waypointReachDistance = 0.9f;
 
         // Current route state. Progress is measured along the route so a sliding
         // ship does not turn around and circle a sample it has already passed.
@@ -54,6 +55,18 @@ namespace OA.Presentation.Units
             activeTraversalMask = null;
         }
 
+        private void Awake()
+        {
+            ResolveHullRenderer();
+            ApplyPresentationFromArchetype();
+        }
+
+        private void OnValidate()
+        {
+            ResolveHullRenderer();
+            ApplyPresentationFromArchetype();
+        }
+
         // Optional self-start for scene-placed ships that already have an archetype assigned.
         private void Start()
         {
@@ -76,6 +89,7 @@ namespace OA.Presentation.Units
             Runtime = new UnitRuntime(archetype, startWorldPosition);
             speedMode = defaultSpeedMode;
             movementState = MovementState.Create(startWorldPosition, transform.eulerAngles.z);
+            ApplyPresentationFromArchetype();
 
             transform.position = new Vector3(startWorldPosition.x, startWorldPosition.y, transform.position.z);
             transform.rotation = Quaternion.Euler(0f, 0f, movementState.HeadingDegrees);
@@ -282,6 +296,66 @@ namespace OA.Presentation.Units
                 transform.position.z);
 
             transform.rotation = Quaternion.Euler(0f, 0f, movementState.HeadingDegrees);
+        }
+
+        private void ResolveHullRenderer()
+        {
+            if (hullRenderer != null)
+            {
+                return;
+            }
+
+            hullRenderer = GetComponentInChildren<SpriteRenderer>(true);
+        }
+
+        private void ApplyPresentationFromArchetype()
+        {
+            if (hullRenderer == null || archetype == null)
+            {
+                return;
+            }
+
+            PresentationProfileDefinition presentation =
+                archetype.presentationProfile;
+
+            if (presentation != null)
+            {
+                if (presentation.worldSprite != null)
+                {
+                    hullRenderer.sprite = presentation.worldSprite;
+                }
+
+                hullRenderer.color = presentation.tint;
+            }
+
+            ApplyRealLengthSpriteScale();
+        }
+
+        private void ApplyRealLengthSpriteScale()
+        {
+            MovementProfileDefinition movement =
+                archetype != null ? archetype.movementProfile : null;
+
+            if (movement == null ||
+                hullRenderer == null ||
+                hullRenderer.sprite == null)
+            {
+                return;
+            }
+
+            Vector2 nativeSize = hullRenderer.sprite.bounds.size;
+            float nativeLength = Mathf.Max(
+                Mathf.Abs(nativeSize.x),
+                Mathf.Abs(nativeSize.y));
+
+            if (nativeLength <= 0.0001f)
+            {
+                return;
+            }
+
+            float scale = movement.LengthWorldUnits / nativeLength;
+            hullRenderer.transform.localScale =
+                new Vector3(scale, scale, scale);
         }
 
         // Reads transform.position as a 2D point.

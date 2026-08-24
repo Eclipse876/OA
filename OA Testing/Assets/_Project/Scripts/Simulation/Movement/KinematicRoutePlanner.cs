@@ -14,8 +14,8 @@ namespace OA.Simulation.Movement
         private const float TurnSlowAngleDegrees = 25f;
         private const float TightTurnAngleDegrees = 60f;
         private const float EpsilonKnots = 0.05f;
-        private const float PredictionSampleSpacing = 0.025f;
-        private const int MaximumPredictionSteps = 30000;
+        private const float PredictionSampleSpacing = 0.5f;
+        private const int MaximumPredictionSteps = 180000;
 
         private enum SpeedLimiter
         {
@@ -636,11 +636,7 @@ namespace OA.Simulation.Movement
         private static float CalculateSampleStep(
             MovementProfileDefinition profile)
         {
-            float shipLengthWorld =
-                Mathf.Max(1f, profile.lengthMeters) /
-                Mathf.Max(0.001f, profile.metersPerWorldUnit);
-
-            return Mathf.Clamp(shipLengthWorld * 0.15f, 0.05f, 0.5f);
+            return Mathf.Clamp(profile.LengthWorldUnits * 0.15f, 0.05f, 0.5f);
         }
     }
 }

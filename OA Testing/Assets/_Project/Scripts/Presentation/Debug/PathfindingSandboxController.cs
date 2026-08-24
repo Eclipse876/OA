@@ -3,6 +3,7 @@
 // presenter, listens for clicks/rerolls, tells the ship where to go, and keeps
 // the test scene from exploding.
 using System.Collections.Generic;
+using OA.Presentation.UI;
 using OA.Presentation.Units;
 using OA.Simulation.Movement;
 using OA.Simulation.Navigation;
@@ -36,7 +37,11 @@ namespace OA.Presentation.Debug
         [SerializeField] private Color lastWaypointMarkerColor = Color.black;
         [SerializeField] private Transform waypointMarkerRoot;
         [SerializeField] private int waypointMarkerOrderInLayer = 11;
-        [SerializeField, Min(0.01f)] private float waypointMarkerScale = 0.35f;
+        [SerializeField, Min(0.01f)] private float waypointMarkerScale = 0.09f;
+        [SerializeField] private bool scaleWaypointMarkersWithCamera = true;
+        [SerializeField, Min(1f)] private float intermediateWaypointMarkerScreenPixels = 20f;
+        [SerializeField, Min(1f)] private float finalWaypointMarkerScreenPixels = 30f;
+        [SerializeField, Min(0.01f)] private float maximumWaypointMarkerWorldScale = 512f;
 
         // Default cells and tuning for click routing, rerolls, and debug line drawing.
         [Header("Defaults")]
@@ -58,14 +63,15 @@ namespace OA.Presentation.Debug
         [SerializeField, Range(0.02f, 1f)] private float minimumConstrainedTurnSpeedScale = 0.1f;
 
         [Header("Planning Budget")]
-        [SerializeField, Min(0.1f)] private float planningBudgetMillisecondsPerFrame = 2f;
+        [SerializeField, Min(0.1f)] private float planningBudgetMillisecondsPerFrame = 4f;
+        [SerializeField, Min(1)] private int predictionStepsPerPlanningSlice = 192;
         [SerializeField, Range(0.05f, 1f)] private float severeTurnSpeedFraction = 0.35f;
 
         [Header("Prediction Limits")]
-        [SerializeField, Min(1f)] private float minimumPredictionTimeBudgetSeconds = 8f;
-        [SerializeField, Min(1f)] private float maximumPredictionTimeBudgetSeconds = 60f;
-        [SerializeField, Min(1f)] private float predictionTimeBudgetMultiplier = 2.5f;
-        [SerializeField, Min(0.25f)] private float predictionStagnationSeconds = 4f;
+        [SerializeField, Min(1f)] private float minimumPredictionTimeBudgetSeconds = 12f;
+        [SerializeField, Min(1f)] private float maximumPredictionTimeBudgetSeconds = 1800f;
+        [SerializeField, Min(1f)] private float predictionTimeBudgetMultiplier = 3.5f;
+        [SerializeField, Min(0.25f)] private float predictionStagnationSeconds = 10f;
         [SerializeField, Range(1, 4)] private int maximumRecoveryGeometryBases = 1;
         [SerializeField, Min(0)] private int maxPendingSnapshotRestarts = 1;
         [SerializeField, Min(0.05f)] private float pendingSnapshotMaxDriftWorld = 1.25f;
@@ -112,6 +118,7 @@ namespace OA.Presentation.Debug
         // Runtime services resolved from the assigned MonoBehaviours in Awake.
         private INavigationPathService pathService;
         private INavigationGridPresenter gridPresenter;
+        private global::CameraController sceneCameraController;
         private HexMapRuntime map;
 
         private Waypoint? activeDestination;
@@ -169,6 +176,8 @@ namespace OA.Presentation.Debug
 
             Vector2Int spawn = FindClosestTraversableCell(ClampCellToBounds(guaranteedSpawnCell));
             shipAgent.WarpTo(map.GetWorldCenter(spawn.x, spawn.y));
+            ConfigureCameraFraming();
+            sceneCameraController?.SnapToCurrentZoomFrame();
 
             ClearLines();
             LogStatus("Pathfinding sandbox initialized.");
@@ -184,6 +193,7 @@ namespace OA.Presentation.Debug
             RetirePassedWaypoints();
             HandleRouteCompletion();
             UpdateActiveRouteLine();
+            UpdateWaypointMarkerScales();
         }
 
         private void OnGUI()
@@ -249,6 +259,11 @@ namespace OA.Presentation.Debug
                 return;
             }
 
+            RequestSpeedModeToggle();
+        }
+
+        public void RequestSpeedModeToggle()
+        {
             MovementSpeedMode previousMode = shipAgent.SpeedMode;
             shipAgent.ToggleSpeedMode();
 
@@ -264,6 +279,11 @@ namespace OA.Presentation.Debug
             }
 
             LogStatus($"Speed Mode: {shipAgent.SpeedMode}");
+        }
+
+        public void SetLegacyHoverTileReadoutVisible(bool visible)
+        {
+            showHoverTileReadout = visible;
         }
 
         // Public helper for benchmark/debug callers to ask about the current safety mask.
@@ -324,6 +344,8 @@ namespace OA.Presentation.Debug
 
             Vector2Int finalSpawn = FindClosestTraversableCell(spawn);
             shipAgent.WarpTo(map.GetWorldCenter(finalSpawn.x, finalSpawn.y));
+            ConfigureCameraFraming();
+            sceneCameraController?.SnapToCurrentZoomFrame();
 
             activeDestination = null;
             routeWaypoints.Clear();
@@ -366,6 +388,8 @@ namespace OA.Presentation.Debug
                 UnityEngine.Debug.LogError("[PathfindingSandboxController] Missing Scene Camera reference and no MainCamera found.");
                 return false;
             }
+
+            sceneCameraController = sceneCamera.GetComponent<global::CameraController>();
 
             if (mapDefinition == null)
             {
@@ -422,7 +446,7 @@ namespace OA.Presentation.Debug
         {
             MovementProfileDefinition movement = shipAgent.MovementProfile;
             float safetyRadius = movement != null
-                ? movement.safetyRadius + Mathf.Max(0f, addedClearance)
+                ? movement.NavigationSafetyRadiusWorld + Mathf.Max(0f, addedClearance)
                 : Mathf.Max(0f, addedClearance);
 
             ShipDraftClass draftClass = movement != null
@@ -451,6 +475,69 @@ namespace OA.Presentation.Debug
             pathService.RebuildGraph(map, profile);
 
             DisplayAppliedNavigationProfile(profile);
+            ConfigureCameraFraming();
+        }
+
+        private void ConfigureCameraFraming()
+        {
+            if (sceneCameraController == null || map == null || !map.HasWorldCenters)
+            {
+                return;
+            }
+
+            SpriteRenderer shipRenderer = shipAgent != null
+                ? shipAgent.GetComponentInChildren<SpriteRenderer>(true)
+                : null;
+
+            if (shipRenderer != null)
+            {
+                sceneCameraController.SetShipFocusRenderer(shipRenderer);
+            }
+
+            if (TryGetMapWorldBounds(out Bounds mapBounds))
+            {
+                sceneCameraController.SetMapFrameBounds(mapBounds);
+            }
+        }
+
+        private bool TryGetMapWorldBounds(out Bounds bounds)
+        {
+            bounds = default;
+
+            if (map == null || !map.HasWorldCenters)
+            {
+                return false;
+            }
+
+            bool hasBounds = false;
+
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    Vector2 center = map.GetWorldCenter(x, y);
+                    Vector3 point = new Vector3(center.x, center.y, 0f);
+
+                    if (!hasBounds)
+                    {
+                        bounds = new Bounds(point, Vector3.zero);
+                        hasBounds = true;
+                    }
+                    else
+                    {
+                        bounds.Encapsulate(point);
+                    }
+                }
+            }
+
+            if (!hasBounds)
+            {
+                return false;
+            }
+
+            float padding = Mathf.Max(0.05f, map.CellSize) * 0.75f;
+            bounds.Expand(new Vector3(padding, padding, 0f));
+            return true;
         }
 
         // Updates debug shading only when a profile becomes the accepted visible profile.
@@ -547,6 +634,11 @@ namespace OA.Presentation.Debug
                                     (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl));
 #endif
             if (!wasPressed)
+            {
+                return;
+            }
+
+            if (UiInputBlocker.IsPointerOverBlockingUi(mouseScreen))
             {
                 return;
             }
@@ -870,7 +962,8 @@ namespace OA.Presentation.Debug
                 if (pendingPrediction.IsRunning)
                 {
                     int startSteps = pendingPrediction.StepsExecuted;
-                    pendingPrediction.Advance(96);
+                    pendingPrediction.Advance(
+                        Mathf.Max(1, predictionStepsPerPlanningSlice));
                     pendingPhysicalSteps +=
                         pendingPrediction.StepsExecuted - startSteps;
 
@@ -996,7 +1089,10 @@ namespace OA.Presentation.Debug
             float cruiseWorld =
                 MovementMath.KnotsToWorldUnitsPerSecond(
                     shipAgent.MovementProfile.cruiseSpeedKnots,
-                    shipAgent.MovementProfile.metersPerWorldUnit);
+                    shipAgent.MovementProfile.metersPerWorldUnit) *
+                Mathf.Max(
+                    0.001f,
+                    shipAgent.MovementProfile.simulationSecondsPerRealSecond);
 
             float optimisticSeconds =
                 routeDistance / Mathf.Max(0.1f, cruiseWorld);
@@ -1773,7 +1869,8 @@ namespace OA.Presentation.Debug
                     nextWaypointMarkerRenderer = CreateWaypointMarkerRenderer(
                         "NextWaypointMarker",
                         nextWaypointMarkerSprite,
-                        Color.white);
+                        Color.white,
+                        intermediateWaypointMarkerScreenPixels);
                 }
 
                 PositionWaypointMarker(
@@ -1795,7 +1892,8 @@ namespace OA.Presentation.Debug
                     lastWaypointMarkerRenderer = CreateWaypointMarkerRenderer(
                         "LastWaypointMarker",
                         nextWaypointMarkerSprite,
-                        lastWaypointMarkerColor);
+                        lastWaypointMarkerColor,
+                        finalWaypointMarkerScreenPixels);
                 }
 
                 lastWaypointMarkerRenderer.color = lastWaypointMarkerColor;
@@ -1825,7 +1923,8 @@ namespace OA.Presentation.Debug
                     SpriteRenderer marker = CreateWaypointMarkerRenderer(
                         "WaypointMarker",
                         waypointMarkerSprite,
-                        Color.white);
+                        Color.white,
+                        intermediateWaypointMarkerScreenPixels);
 
                     waypointMarkerPool.Add(marker);
                 }
@@ -1852,19 +1951,20 @@ namespace OA.Presentation.Debug
         private SpriteRenderer CreateWaypointMarkerRenderer(
             string markerName,
             Sprite sprite,
-            Color color)
+            Color color,
+            float targetScreenPixels)
         {
             GameObject markerObject = new GameObject(markerName);
             Transform markerTransform = markerObject.transform;
             markerTransform.SetParent(
                 waypointMarkerRoot != null ? waypointMarkerRoot : transform,
                 false);
-            markerTransform.localScale = Vector3.one * waypointMarkerScale;
 
             SpriteRenderer marker = markerObject.AddComponent<SpriteRenderer>();
             marker.sprite = sprite;
             marker.color = color;
             marker.sortingOrder = waypointMarkerOrderInLayer;
+            ApplyWaypointMarkerScale(marker, targetScreenPixels);
             return marker;
         }
 
@@ -1899,6 +1999,72 @@ namespace OA.Presentation.Debug
                 position.x,
                 position.y,
                 marker.transform.position.z);
+        }
+
+        private void UpdateWaypointMarkerScales()
+        {
+            ApplyWaypointMarkerScale(
+                nextWaypointMarkerRenderer,
+                intermediateWaypointMarkerScreenPixels);
+            ApplyWaypointMarkerScale(
+                lastWaypointMarkerRenderer,
+                finalWaypointMarkerScreenPixels);
+
+            for (int i = 0; i < waypointMarkerPool.Count; i++)
+            {
+                ApplyWaypointMarkerScale(
+                    waypointMarkerPool[i],
+                    intermediateWaypointMarkerScreenPixels);
+            }
+        }
+
+        private void ApplyWaypointMarkerScale(
+            SpriteRenderer marker,
+            float targetScreenPixels)
+        {
+            if (marker == null)
+            {
+                return;
+            }
+
+            marker.transform.localScale =
+                Vector3.one * GetWaypointMarkerWorldScale(
+                    marker,
+                    targetScreenPixels);
+        }
+
+        private float GetWaypointMarkerWorldScale(
+            SpriteRenderer marker,
+            float targetScreenPixels)
+        {
+            float scale = waypointMarkerScale;
+
+            if (scaleWaypointMarkersWithCamera &&
+                sceneCamera != null &&
+                sceneCamera.orthographic &&
+                marker != null &&
+                marker.sprite != null)
+            {
+                int pixelHeight = sceneCamera.pixelHeight > 0
+                    ? sceneCamera.pixelHeight
+                    : Screen.height;
+                float spriteSize = Mathf.Max(
+                    marker.sprite.bounds.size.x,
+                    marker.sprite.bounds.size.y);
+
+                if (pixelHeight > 0 && spriteSize > 0.0001f)
+                {
+                    float desiredWorldSize =
+                        Mathf.Max(1f, targetScreenPixels) *
+                        (2f * sceneCamera.orthographicSize / pixelHeight);
+                    scale = desiredWorldSize / spriteSize;
+                }
+            }
+
+            return Mathf.Clamp(
+                scale,
+                0.0001f,
+                Mathf.Max(0.0001f, maximumWaypointMarkerWorldScale));
         }
 
         // Reads the ship transform as a 2D world position.

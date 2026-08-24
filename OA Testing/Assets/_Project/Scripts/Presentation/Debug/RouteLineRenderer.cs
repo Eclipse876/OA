@@ -20,6 +20,11 @@ namespace OA.Presentation.Debug
         [SerializeField, Range(0.05f, 0.95f)] private float slowColorAtCruiseFraction = 0.5f;
 
         [SerializeField, Min(0.001f)] private float width = 0.05f;
+        [SerializeField] private bool scaleWidthWithCamera = true;
+        [SerializeField] private Camera referenceCamera;
+        [SerializeField, Min(0.1f)] private float screenWidthPixels = 5f;
+        [SerializeField, Min(0.001f)] private float maximumWorldWidth = 512f;
+        [SerializeField] private int sortingOrderOffset = -3;
 
         private readonly List<Vector3> vertices = new List<Vector3>(2048);
         private readonly List<Color> colors = new List<Color>(2048);
@@ -96,6 +101,7 @@ namespace OA.Presentation.Debug
                 0,
                 samples.Count - 2);
 
+            float currentWidth = GetCurrentWorldWidth();
             float accumulatedDistance = 0f;
             Vector2 previousPoint = leadingPosition;
 
@@ -130,7 +136,7 @@ namespace OA.Presentation.Debug
 
                 tangent.Normalize();
                 Vector2 normal = new Vector2(-tangent.y, tangent.x);
-                Vector2 offset = normal * (width * 0.5f);
+                Vector2 offset = normal * (currentWidth * 0.5f);
                 Color color = GetSpeedColor(
                     samples[i].SpeedKnots,
                     cruiseSpeedKnots,
@@ -199,7 +205,8 @@ namespace OA.Presentation.Debug
             routeRenderer = routeObject.AddComponent<MeshRenderer>();
             routeRenderer.sharedMaterial = segmentPrefab.sharedMaterial;
             routeRenderer.sortingLayerID = segmentPrefab.sortingLayerID;
-            routeRenderer.sortingOrder = segmentPrefab.sortingOrder;
+            routeRenderer.sortingOrder =
+                segmentPrefab.sortingOrder + sortingOrderOffset;
 
             routeMesh = new Mesh
             {
@@ -210,6 +217,38 @@ namespace OA.Presentation.Debug
             meshFilter.sharedMesh = routeMesh;
             routeObject.SetActive(false);
             return true;
+        }
+
+        private float GetCurrentWorldWidth()
+        {
+            if (!scaleWidthWithCamera)
+            {
+                return width;
+            }
+
+            Camera camera = referenceCamera != null ? referenceCamera : Camera.main;
+
+            if (camera == null || !camera.orthographic)
+            {
+                return width;
+            }
+
+            int pixelHeight = camera.pixelHeight > 0
+                ? camera.pixelHeight
+                : Screen.height;
+
+            if (pixelHeight <= 0)
+            {
+                return width;
+            }
+
+            float cameraScaledWidth =
+                screenWidthPixels * (2f * camera.orthographicSize / pixelHeight);
+
+            return Mathf.Clamp(
+                cameraScaledWidth,
+                0.0001f,
+                Mathf.Max(0.0001f, maximumWorldWidth));
         }
 
         private void AddVertex(

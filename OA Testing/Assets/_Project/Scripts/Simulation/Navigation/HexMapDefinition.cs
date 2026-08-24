@@ -18,7 +18,7 @@ namespace OA.Simulation.Navigation
         [Header("Hex Map Grid")]
         [SerializeField, Min(4)] private int width = 80;
         [SerializeField, Min(4)] private int height = 120;
-        [SerializeField, Min(0f)] private float cellSize = 1.1f;
+        [SerializeField, Min(0f)] private float cellSize = 32.22222f;
 
         // Bake knobs remembered here so editor/runtime rerolls can match the same map style.
         [Header("Bake Metadata")]

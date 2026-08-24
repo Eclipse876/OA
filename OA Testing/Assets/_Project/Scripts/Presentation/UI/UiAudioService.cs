@@ -1,6 +1,6 @@
-using UnityEngine;
-
-public class UiAudioService
+namespace OA.Presentation.UI
 {
-    
+    public sealed class UiAudioService
+    {
+    }
 }

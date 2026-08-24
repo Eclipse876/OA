@@ -12,6 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 32ffefc912a553a48a0a03433a844b1f, type: 3}
   m_Name: ShipArchetype_Main
   m_EditorClassIdentifier: OA.Simulation::OA.Simulation.Units.UnitArchetypeDefinition
-  displayName: New Unit
+  displayName: Garcia-class Destroyer
   movementProfile: {fileID: 11400000, guid: 99a83a1fa0cb54c4d89ee587ad35a76b, type: 2}
-  presentationProfile: {fileID: 0}
+  presentationProfile: {fileID: 11400000, guid: 9c0e3b329af24e4f9bc80f0b2513cf12, type: 2}

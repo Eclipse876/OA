@@ -9,8 +9,8 @@ namespace OA.Simulation.Movement
 {
     public sealed class ShipRoutePrediction
     {
-        private const float PredictionSampleSpacing = 0.025f;
-        private const int MaximumPredictionSteps = 30000;
+        private const float PredictionSampleSpacing = 0.5f;
+        private const int MaximumPredictionSteps = 180000;
         private const float MinimumUsefulProgressWorld = 0.04f;
         private const float MinimumUsefulFinalDistanceImprovementWorld = 0.04f;
 
@@ -54,7 +54,7 @@ namespace OA.Simulation.Movement
             float lookAheadDistance,
             float arrivalDistance,
             float maximumUsefulArrivalTimeSeconds = float.PositiveInfinity,
-            float maximumPredictionSeconds = 45f,
+            float maximumPredictionSeconds = 900f,
             float stagnationSeconds = 4f)
         {
             this.candidate = candidate;

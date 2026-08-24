@@ -71,7 +71,7 @@ namespace OA.Simulation.Movement
                     return Preset(14f, 0.35f, 0.5f, 24f, 8f, 5.5f, 7.0f, 0.012f, 0.55f, 0.45f);
 
                 case ShipAgilityClass.Low:
-                    return Preset(9f, 0.65f, 0.75f, 16f, 10f, 4.8f, 6.0f, 0.015f, 0.60f, 0.35f);
+                    return Preset(9f, 0.65f, 1.1f, 16f, 10f, 4.8f, 6.0f, 0.015f, 0.60f, 0.35f);
 
                 case ShipAgilityClass.High:
                     return Preset(3f, 2.3f, 1.4f, 6f, 18f, 3.0f, 3.8f, 0.026f, 0.72f, 0.18f);

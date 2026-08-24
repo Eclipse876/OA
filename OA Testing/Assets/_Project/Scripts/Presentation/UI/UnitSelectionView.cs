@@ -1,6 +1,6 @@
-using UnityEngine;
-
-public class UnitSelectionView
+namespace OA.Presentation.UI
 {
-    
+    public sealed class UnitSelectionView
+    {
+    }
 }

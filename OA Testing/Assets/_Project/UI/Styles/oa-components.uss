@@ -1,1 +1,8 @@
-VisualElement {}
+.oa-kicker,
+.oa-panel-note {
+    margin-bottom: 2px;
+}
+
+.oa-bottom-help {
+    -unity-text-align: middle-right;
+}

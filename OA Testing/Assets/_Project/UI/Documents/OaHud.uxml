@@ -2,8 +2,67 @@
 <ui:UXML
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xmlns:ui="UnityEngine.UIElements"
-    xmlns:uie="UnityEditor.UIElements"
     xsi:noNamespaceSchemaLocation="../../../../UIElementsSchema/UIElements.xsd"
 >
-    
+    <Style src="../Styles/oa-theme.uss" />
+    <Style src="../Styles/oa-layout.uss" />
+    <Style src="../Styles/oa-components.uss" />
+
+    <ui:VisualElement name="oa-hud-root" class="oa-hud-root">
+        <ui:VisualElement name="top-bar" class="oa-top-bar ui-blocker">
+            <ui:VisualElement class="oa-brand-group">
+                <ui:Label text="OA" class="oa-brand" />
+                <ui:Label text="Operations Display" class="oa-subtitle" />
+            </ui:VisualElement>
+
+            <ui:VisualElement class="oa-top-status">
+                <ui:Label text="Map" class="oa-kicker" />
+                <ui:Label name="mapStatusLabel" text="Waiting for map" class="oa-value" />
+            </ui:VisualElement>
+
+            <ui:VisualElement class="oa-top-status">
+                <ui:Label text="Camera" class="oa-kicker" />
+                <ui:Label name="cameraStatusLabel" text="Not linked" class="oa-value" />
+            </ui:VisualElement>
+
+            <ui:VisualElement class="oa-top-status">
+                <ui:Label text="Route" class="oa-kicker" />
+                <ui:Label name="routeStatusLabel" text="Standing by" class="oa-value" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement class="oa-middle-row">
+            <ui:VisualElement name="command-bar" class="oa-command-bar ui-blocker">
+                <ui:Label text="Orders" class="oa-panel-title" />
+                <ui:Button name="rerollMapButton" text="Reroll Map" class="oa-command-button" />
+                <ui:Button name="rebuildNavigationButton" text="Rebuild Nav" class="oa-command-button" />
+                <ui:Button name="toggleSpeedButton" text="Toggle Speed" class="oa-command-button" />
+            </ui:VisualElement>
+
+            <ui:VisualElement class="oa-map-space" />
+
+            <ui:VisualElement name="right-rail" class="oa-right-rail">
+                <ui:VisualElement name="minimap-panel" class="oa-panel oa-minimap-panel ui-blocker">
+                    <ui:VisualElement class="oa-panel-header">
+                        <ui:Label text="Mini-Map" class="oa-panel-title" />
+                        <ui:Label name="miniMapStatusLabel" text="offline" class="oa-panel-note" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="mini-map" class="oa-mini-map" />
+                </ui:VisualElement>
+
+                <ui:VisualElement name="tile-readout-panel" class="oa-panel oa-tile-panel ui-blocker">
+                    <ui:Label text="Tile Readout" class="oa-panel-title" />
+                    <ui:Label name="tileCoordinatesLabel" text="Coordinates: -" class="oa-readout-line" />
+                    <ui:Label name="tileTypeLabel" text="Type: -" class="oa-readout-line" />
+                    <ui:Label name="tileDepthLabel" text="Depth: -" class="oa-readout-line" />
+                    <ui:Label name="tileEffectsLabel" text="Effects: -" class="oa-readout-line oa-readout-wrap" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="bottom-bar" class="oa-bottom-bar ui-blocker">
+            <ui:Label name="hudStatusLabel" text="HUD initialized" class="oa-bottom-status" />
+            <ui:Label text="LMB route | Shift queue | F speed" class="oa-bottom-help" />
+        </ui:VisualElement>
+    </ui:VisualElement>
 </ui:UXML>

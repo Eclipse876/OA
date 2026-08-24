@@ -293,6 +293,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: OA.Presentation::OA.Presentation.Debug.TilemapHexGridPresenter
   tilemap: {fileID: 209736120}
   previewDefinition: {fileID: 11400000, guid: 7c2303f97421a8d488a9b816e855945b, type: 2}
+  baseHexCellSize: {x: 0.8659766, y: 1}
+  baseGridLocalScale: {x: 1, y: 1, z: 1}
   shallowWaterTile: {fileID: 0}
   deepWaterTile: {fileID: 11400000, guid: 18feb46b92ca7854baab2ca54fb4dc3a, type: 2}
   roughWaterTile: {fileID: 11400000, guid: f12ce85544d1d6f4183728b1b405e06a, type: 2}
@@ -446,7 +448,7 @@ Grid:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 184174278}
   m_Enabled: 1
-  m_CellSize: {x: 1, y: 1, z: 1}
+  m_CellSize: {x: 0.8659766, y: 1, z: 1}
   m_CellGap: {x: 0, y: 0, z: 0}
   m_CellLayout: 1
   m_CellSwizzle: 0
@@ -128656,9 +128658,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: OA.Presentation::OA.Presentation.Units.ShipNavigationAgent
   archetype: {fileID: 11400000, guid: 445c580581612484b84c203d65251d9f, type: 2}
   initializeOnStart: 1
+  hullRenderer: {fileID: 1882576765}
   defaultSpeedMode: 0
-  lookAheadDistance: 1.2
-  waypointReachDistance: 0.18
+  lookAheadDistance: 8
+  waypointReachDistance: 0.9
 --- !u!4 &465355987
 Transform:
   m_ObjectHideFlags: 0
@@ -128707,11 +128710,37 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b197406c43438c044a58ca1e42ec667c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Gameplay::CameraController
-  speed: 20
+  speed: 500
+  scaleKeyboardPanWithZoom: 1
+  referenceOrthographicSize: 5
   allowMiddleMouseDrag: 1
-  zoomSpeed: 250
-  minimumOrthographicSize: 2
-  maximumOrthographicSize: 100
+  zoomSpeed: 2
+  scaleZoomWithCurrentSize: 1
+  zoomTowardMousePosition: 1
+  zoomFractionPerScrollStep: 0.025
+  zoomScrollStepMultiplier: 0.25
+  minimumScrollStepMagnitude: 1
+  maximumScrollStepMagnitude: 2
+  nearZoomSpeedMultiplier: 384
+  nearZoomSpeedFalloffExponent: 2
+  nearZoomMaximumAcceleratedScrollSteps: 12
+  nearZoomLimitFadeScale: 8
+  farZoomSpeedMultiplier: 20
+  farZoomAccelerationPower: 0.7
+  maximumAcceleratedScrollSteps: 5
+  zoomMousePanStrength: 0.2
+  zoomSmoothTime: 0.1
+  minimumOrthographicSize: 0.1
+  maximumOrthographicSize: 40000
+  deriveMinimumOrthographicSizeFromShip: 1
+  shipFocusRenderer: {fileID: 1882576765}
+  shipViewportFill: 0.82
+  deriveMaximumOrthographicSizeFromMap: 1
+  mapBoundsRoot: {fileID: 184174281}
+  mapViewportFill: 0.94
+  fitMapFromCurrentCameraPosition: 0
+  autoFramePositionWithZoom: 0
+  positionSmoothTime: 0.1
 --- !u!114 &508521160
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -128799,7 +128828,7 @@ Camera:
   far clip plane: 1000
   field of view: 34
   orthographic: 1
-  orthographic size: 5
+  orthographic size: 4.5
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
@@ -129015,7 +129044,11 @@ MonoBehaviour:
   lastWaypointMarkerColor: {r: 0.1333333, g: 0.5450981, b: 0.1333333, a: 1}
   waypointMarkerRoot: {fileID: 0}
   waypointMarkerOrderInLayer: 11
-  waypointMarkerScale: 0.35
+  waypointMarkerScale: 0.09
+  scaleWaypointMarkersWithCamera: 1
+  intermediateWaypointMarkerScreenPixels: 20
+  finalWaypointMarkerScreenPixels: 30
+  maximumWaypointMarkerWorldScale: 512
   guaranteedSpawnCell: {x: 2, y: 2}
   guaranteedGoalCell: {x: 21, y: 31}
   routeSampleFactor: 0.2
@@ -129028,12 +129061,13 @@ MonoBehaviour:
   constrainedTurnAttempts: 3
   constrainedTurnSpeedScaleStep: 0.3
   minimumConstrainedTurnSpeedScale: 0.1
-  planningBudgetMillisecondsPerFrame: 2
+  planningBudgetMillisecondsPerFrame: 4
+  predictionStepsPerPlanningSlice: 192
   severeTurnSpeedFraction: 0.35
-  minimumPredictionTimeBudgetSeconds: 8
-  maximumPredictionTimeBudgetSeconds: 60
-  predictionTimeBudgetMultiplier: 2.5
-  predictionStagnationSeconds: 4
+  minimumPredictionTimeBudgetSeconds: 12
+  maximumPredictionTimeBudgetSeconds: 1800
+  predictionTimeBudgetMultiplier: 3.5
+  predictionStagnationSeconds: 10
   maximumRecoveryGeometryBases: 1
   maxPendingSnapshotRestarts: 1
   pendingSnapshotMaxDriftWorld: 1.25
@@ -129084,7 +129118,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 37.209114, y: 37.209114, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 209736118}
@@ -129251,7 +129285,7 @@ SpriteRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 8
   m_MaskInteraction: 0
-  m_Sprite: {fileID: 67420061286799670, guid: f5bcb2f935eb12a479378747ef1ad601, type: 3}
+  m_Sprite: {fileID: 67420061286799670, guid: 97db844baba188c499f5ff87501420c7, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
@@ -129313,6 +129347,11 @@ MonoBehaviour:
   stopColor: {r: 1, g: 0, b: 0, a: 1}
   slowColorAtCruiseFraction: 0.5
   width: 0.05
+  scaleWidthWithCamera: 1
+  referenceCamera: {fileID: 508521162}
+  screenWidthPixels: 5
+  maximumWorldWidth: 512
+  sortingOrderOffset: -3
 --- !u!1 &2008894174
 GameObject:
   m_ObjectHideFlags: 0

@@ -55,8 +55,7 @@ namespace OA.Simulation.Movement
                     speed01);
             }
 
-            float radiusMeters = Mathf.Max(1f, profile.lengthMeters) * tacticalDiameterLengths * 0.5f;
-            return radiusMeters / Mathf.Max(0.001f, profile.metersPerWorldUnit);
+            return profile.LengthWorldUnits * tacticalDiameterLengths * 0.5f;
         }
     
         public static float CalculateTurnRateDegreesPerSecond(

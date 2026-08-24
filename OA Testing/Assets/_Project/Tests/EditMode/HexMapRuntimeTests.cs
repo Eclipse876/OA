@@ -12,7 +12,7 @@ public sealed class HexMapRuntimeTests
     // Center cells should have six neighbors, while corners only get the valid in-bounds ones.
     public void NeighborCount_IsCorrect_ForCenterAndCorner()
     {
-        HexMapRuntime map = new HexMapRuntime(34, 24, 1.1f);
+        HexMapRuntime map = new HexMapRuntime(34, 24, 32.22222f);
         Vector2Int[] buffer = new Vector2Int[6];
 
         int centerCount = map.GetNeighborCount(10, 10, buffer);

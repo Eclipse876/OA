@@ -1,1 +1,89 @@
-VisualElement {}
+.oa-hud-root {
+    color: #d9e6e1;
+    -unity-font-style: normal;
+}
+
+.oa-top-bar,
+.oa-bottom-bar,
+.oa-command-bar,
+.oa-panel {
+    background-color: rgba(8, 12, 15, 0.82);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(119, 160, 151, 0.36);
+    border-right-color: rgba(119, 160, 151, 0.22);
+    border-top-color: rgba(204, 220, 192, 0.30);
+    border-bottom-color: rgba(0, 0, 0, 0.55);
+}
+
+.oa-brand {
+    color: #f2e7c9;
+    font-size: 22px;
+    -unity-font-style: bold;
+}
+
+.oa-subtitle,
+.oa-kicker,
+.oa-panel-note,
+.oa-bottom-help {
+    color: #94a9a4;
+    font-size: 11px;
+}
+
+.oa-value,
+.oa-readout-line,
+.oa-bottom-status {
+    color: #dce7df;
+    font-size: 12px;
+}
+
+.oa-panel-title {
+    color: #f2d78f;
+    font-size: 12px;
+    -unity-font-style: bold;
+}
+
+.oa-command-button {
+    background-color: rgba(33, 54, 56, 0.94);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(151, 190, 175, 0.42);
+    border-right-color: rgba(151, 190, 175, 0.42);
+    border-top-color: rgba(217, 231, 223, 0.26);
+    border-bottom-color: rgba(0, 0, 0, 0.55);
+    color: #e3eee8;
+    -unity-font-style: bold;
+}
+
+.oa-command-button:hover {
+    background-color: rgba(54, 83, 80, 0.96);
+    color: #ffffff;
+}
+
+.oa-mini-map {
+    background-color: #05090b;
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(214, 230, 214, 0.28);
+    border-right-color: rgba(214, 230, 214, 0.28);
+    border-top-color: rgba(214, 230, 214, 0.28);
+    border-bottom-color: rgba(214, 230, 214, 0.28);
+}
+
+.oa-mini-map-frame {
+    background-color: rgba(255, 233, 155, 0.08);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: #ffe99b;
+    border-right-color: #ffe99b;
+    border-top-color: #ffe99b;
+    border-bottom-color: #ffe99b;
+}
