@@ -12,8 +12,8 @@ public sealed class HexMapGeneratorDeterminismTests
     // Same seed/settings should produce identical blocked/cost arrays.
     public void Generator_IsDeterministic_WithSameSeed()
     {
-        HexMapRuntime mapA = new HexMapRuntime(34, 24, 1.1f);
-        HexMapRuntime mapB = new HexMapRuntime(34, 24, 1.1f);
+        HexMapRuntime mapA = new HexMapRuntime(34, 24, 32.22222f);
+        HexMapRuntime mapB = new HexMapRuntime(34, 24, 32.22222f);
 
         HexMapGenerator generator = new HexMapGenerator();
 
@@ -36,7 +36,7 @@ public sealed class HexMapGeneratorDeterminismTests
     // Start and goal cells should be walkable after generation, even on messy maps.
     public void Generator_ClearsGuaranteedCells()
     {
-        HexMapRuntime map = new HexMapRuntime(34, 24, 1.1f);
+        HexMapRuntime map = new HexMapRuntime(34, 24, 32.22222f);
         HexMapGenerator generator = new HexMapGenerator();
 
         Vector2Int start = new Vector2Int(2, 2);

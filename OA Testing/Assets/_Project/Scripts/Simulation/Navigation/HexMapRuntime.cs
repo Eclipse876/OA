@@ -2,6 +2,7 @@
 // This is the live hex map brain. It knows which cells are blocked, what they
 // cost to cross, where their centers landed in world space, and how to speak
 // hex math so the rest of the code does not have to.
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace OA.Simulation.Navigation
@@ -13,17 +14,29 @@ namespace OA.Simulation.Navigation
         // Cell data is stored flat: index = y * Width + x. Simple, fast, slightly boring.
         private readonly bool[] blocked;
         private readonly float[] moveCost;
+        private readonly WaterDepthClass[] depthClass;
+        private readonly LandElevationClass[] landElevationClass;
         private readonly Vector2[] worldCenters;
 
+        // Spatial lookup for repeated world-to-cell queries during route smoothing and prediction.
+        // The brute-force fallback remains available for unusual off-map queries.
+        private readonly Dictionary<Vector2Int, List<int>> worldCenterBuckets =
+            new Dictionary<Vector2Int, List<int>>();
+
+        private float worldCenterBucketSize;
         private bool hasWorldCenters;
 
         // Read-only map shape. Resize by making a new runtime map.
         public int Width { get; }
         public int Height { get; }
         public float CellSize { get; }
+        public int Version { get; private set; }
+        public bool HasWorldCenters => hasWorldCenters;
 
         public bool[] Blocked => blocked;
         public float[] MoveCost => moveCost;
+        public WaterDepthClass[] DepthClass => depthClass;
+        public LandElevationClass[] LandElevationClasses => landElevationClass;
 
         // Creates a clamped, empty map and defaults every cell to normal movement cost.
         public HexMapRuntime(int width, int height, float cellSize)
@@ -35,11 +48,15 @@ namespace OA.Simulation.Navigation
             int count = Width * Height;
             blocked = new bool[count];
             moveCost = new float[count];
+            depthClass = new WaterDepthClass[count];
+            landElevationClass = new LandElevationClass[count];
             worldCenters = new Vector2[count];
 
             for (int i = 0; i < count; i++)
             {
                 moveCost[i] = 1f;
+                depthClass[i] = WaterDepthClass.Deep;
+                landElevationClass[i] = LandElevationClass.Land;
             }
         }
 
@@ -55,6 +72,8 @@ namespace OA.Simulation.Navigation
             HexMapRuntime map = new HexMapRuntime(definition.Width, definition.Height, definition.CellSize);
             bool[] defBlocked = definition.CellBlocked;
             float[] srcMoveCost = definition.MoveCost;
+            WaterDepthClass[] srcDepthClass = definition.DepthClass;
+            LandElevationClass[] srcLandElevationClass = definition.LandElevationClasses;
             int count = map.Width * map.Height;
 
             if (defBlocked != null)
@@ -68,6 +87,26 @@ namespace OA.Simulation.Navigation
                 for (int i = 0; i < copy; i++)
                 {
                     map.moveCost[i] = Mathf.Max(1f, srcMoveCost[i]);
+                }
+            }
+
+            if (srcDepthClass != null)
+            {
+                int copy = Mathf.Min(srcDepthClass.Length, count);
+               
+                for(int i = 0; i < copy; i++)
+                {
+                    map.depthClass[i] = srcDepthClass[i];
+                }
+            }
+
+            if (srcLandElevationClass != null)
+            {
+                int copy = Mathf.Min(srcLandElevationClass.Length, count);
+
+                for (int i = 0; i < copy; i++)
+                {
+                    map.landElevationClass[i] = srcLandElevationClass[i];
                 }
             }
 
@@ -117,7 +156,14 @@ namespace OA.Simulation.Navigation
                 return;
             }
 
-            blocked[GetIndex(x, y)] = value;
+            int index = GetIndex(x, y);
+            if (blocked[index] == value)
+            {
+                return;
+            }
+
+            blocked[index] = value;
+            Version++;
         }
 
         // Safely updates movement cost while clamping it to at least normal water.
@@ -128,7 +174,82 @@ namespace OA.Simulation.Navigation
                 return;
             }
 
-            moveCost[GetIndex(x, y)] = Mathf.Max(1f, value);
+            int index = GetIndex(x, y);
+            float clamped = Mathf.Max(1f, value);
+
+            if (Mathf.Approximately(moveCost[index], clamped))
+            {
+                return;
+            }
+
+            moveCost[index] = clamped;
+            Version++;
+        }
+
+        //Out-of-bounts returns Shallow so Deep draft ships fail closed.
+        public WaterDepthClass GetDepthClass(int x, int y)
+        {
+            if (!InBounds(x, y))
+            {
+                return WaterDepthClass.Shallow;
+            }
+            
+            return depthClass[GetIndex(x, y)];
+        }
+
+        public void SetDepthClass(int x, int y, WaterDepthClass value)
+        {
+            if (!InBounds(x, y))
+            {
+                return;
+            }
+
+            int index = GetIndex(x, y);
+            if (depthClass[index] == value)
+            {
+                return;
+            }
+
+            depthClass[index] = value;
+            Version++;
+        }
+
+        public LandElevationClass GetLandElevationClass(int x, int y)
+        {
+            if (!InBounds(x, y))
+            {
+                return LandElevationClass.Land;
+            }
+
+            return landElevationClass[GetIndex(x, y)];
+        }
+
+        public void SetLandElevationClass(int x, int y, LandElevationClass value)
+        {
+            if (!InBounds(x, y))
+            {
+                return;
+            }
+
+            int index = GetIndex(x, y);
+            if (landElevationClass[index] == value)
+            {
+                return;
+            }
+
+            landElevationClass[index] = value;
+            Version++;
+        }
+
+        public MapTileType GetTileType(int x, int y)
+        {
+            if (IsBlocked(x, y))
+            {
+                return NavigationTerrainRules.ToMapTileType(
+                    GetLandElevationClass(x, y));
+            }
+
+            return NavigationTerrainRules.ToMapTileType(GetDepthClass(x, y));
         }
 
         // Stores the world-space center for a rendered cell.
@@ -145,6 +266,7 @@ namespace OA.Simulation.Navigation
         // Marks world centers usable after the presenter finishes filling them in.
         public void MarkWorldCentersReady()
         {
+            BuildWorldCenterLookup();
             hasWorldCenters = true;
         }
 
@@ -168,16 +290,97 @@ namespace OA.Simulation.Navigation
                 return false;
             }
 
-            // Brute-force nearest-center lookup is fine for debug maps; swap later if maps get huge.
+            if (TryWorldToCellFromBuckets(worldPosition, out cell))
+            {
+                return true;
+            }
+
+            // Queries far outside the map are rare. Preserve the former nearest-cell
+            // behavior as a fallback without charging this cost to every prediction sample.
+            return TryWorldToCellBruteForce(worldPosition, out cell);
+        }
+
+        // Builds a lightweight spatial index after the visible Tilemap centers are cached.
+        private void BuildWorldCenterLookup()
+        {
+            worldCenterBuckets.Clear();
+            worldCenterBucketSize = Mathf.Max(0.05f, CellSize);
+
+            for (int i = 0; i < worldCenters.Length; i++)
+            {
+                Vector2Int bucket = GetWorldCenterBucket(worldCenters[i]);
+
+                if (!worldCenterBuckets.TryGetValue(bucket, out List<int> entries))
+                {
+                    entries = new List<int>(2);
+                    worldCenterBuckets.Add(bucket, entries);
+                }
+
+                entries.Add(i);
+            }
+        }
+
+        // Checks only nearby buckets during normal in-map movement and route prediction.
+        private bool TryWorldToCellFromBuckets(
+            Vector2 worldPosition,
+            out Vector2Int cell)
+        {
+            Vector2Int centerBucket = GetWorldCenterBucket(worldPosition);
+            float bestDistanceSqr = float.PositiveInfinity;
+            int bestIndex = -1;
+
+            // A two-bucket margin is deliberately generous for hex row offsets
+            // and keeps prediction robust near tile edges.
+            for (int y = -2; y <= 2; y++)
+            {
+                for (int x = -2; x <= 2; x++)
+                {
+                    Vector2Int bucket = new Vector2Int(
+                        centerBucket.x + x,
+                        centerBucket.y + y);
+
+                    if (!worldCenterBuckets.TryGetValue(bucket, out List<int> entries))
+                    {
+                        continue;
+                    }
+
+                    for (int i = 0; i < entries.Count; i++)
+                    {
+                        int index = entries[i];
+                        float distanceSqr =
+                            (worldCenters[index] - worldPosition).sqrMagnitude;
+
+                        if (distanceSqr < bestDistanceSqr)
+                        {
+                            bestDistanceSqr = distanceSqr;
+                            bestIndex = index;
+                        }
+                    }
+                }
+            }
+
+            if (bestIndex < 0)
+            {
+                cell = default;
+                return false;
+            }
+
+            cell = new Vector2Int(bestIndex % Width, bestIndex / Width);
+            return true;
+        }
+
+        // Preserves the original nearest-center behavior for unusual distant queries.
+        private bool TryWorldToCellBruteForce(
+            Vector2 worldPosition,
+            out Vector2Int cell)
+        {
             float bestDistanceSqr = float.PositiveInfinity;
             int bestIndex = -1;
 
             for (int i = 0; i < worldCenters.Length; i++)
             {
-                Vector2 center = worldCenters[i];
-                float dx = center.x - worldPosition.x;
-                float dy = center.y - worldPosition.y;
-                float distanceSqr = dx * dx + dy * dy;
+                float distanceSqr =
+                    (worldCenters[i] - worldPosition).sqrMagnitude;
 
                 if (distanceSqr < bestDistanceSqr)
                 {
@@ -194,6 +397,13 @@ namespace OA.Simulation.Navigation
 
             cell = new Vector2Int(bestIndex % Width, bestIndex / Width);
             return true;
+        }
+
+        private Vector2Int GetWorldCenterBucket(Vector2 position)
+        {
+            return new Vector2Int(
+                Mathf.FloorToInt(position.x / worldCenterBucketSize),
+                Mathf.FloorToInt(position.y / worldCenterBucketSize));
         }
 
         // Fills a caller-owned buffer with valid neighboring hex cells.

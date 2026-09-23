@@ -13,7 +13,7 @@ namespace OA.Simulation.Navigation
         // Builds a world-space route from a cell path, keeping the final click inside its cell.
         public static void BuildRoute(
             HexMapRuntime map,
-            bool[] blockedMask,
+            NavigationTraversalMask mask,
             IReadOnlyList<Vector2Int> cellPath,
             Vector2 startWorld,
             Vector2 destinationWorld,
@@ -52,21 +52,24 @@ namespace OA.Simulation.Navigation
 
             routeOut.Add(startWorld);
 
-            // Greedy shortcut pass: from each anchor, jump to the farthest visible candidate.
+            // Greedy shortcut pass: from each anchor, try the destination first
+            // and walk backward only when terrain blocks the longer jump.
             int anchor = 0;
             while (anchor < scratchCandidates.Count - 1)
             {
                 int farthestReachable = anchor + 1;
-                for (int candidate = farthestReachable + 1; candidate < scratchCandidates.Count; candidate++)
+                for (int candidate = scratchCandidates.Count - 1;
+                     candidate > anchor;
+                     candidate--)
                 {
-                    if (IsSegmentTraversable(
+                    if (RouteSegmentUtility.IsSegmentTraversable(
                         map,
-                        blockedMask,
+                        mask,
                         scratchCandidates[anchor],
-                        scratchCandidates[candidate],
-                        sampleFactor))
+                        scratchCandidates[candidate]))
                     {
                         farthestReachable = candidate;
+                        break;
                     }
                 }
 
@@ -87,59 +90,6 @@ namespace OA.Simulation.Navigation
                 routeOut.Add(startWorld);
                 routeOut.Add(finalDestination);
             }
-        }
-
-        // Samples along a world segment and makes sure every touched cell is traversable.
-        private static bool IsSegmentTraversable(
-            HexMapRuntime map,
-            bool[] blockedMask,
-            Vector2 a,
-            Vector2 b,
-            float sampleFactor)
-        {
-            float distance = Vector2.Distance(a, b);
-            if (distance < 0.0001f)
-            {
-                return true;
-            }
-
-            float sampleStep = Mathf.Max(0.04f, map.CellSize * Mathf.Clamp(sampleFactor, 0.05f, 1f));
-            int samples = Mathf.Max(2, Mathf.CeilToInt(distance / sampleStep));
-
-            for (int i = 0; i <= samples; i++)
-            {
-                float t = i / (float)samples;
-                Vector2 p = Vector2.Lerp(a, b, t);
-
-                if (!map.TryWorldToCell(p, out Vector2Int cell))
-                {
-                    return false;
-                }
-
-                if (!IsTraversable(map, blockedMask, cell))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        // Checks a cell against either the safety-expanded mask or the raw map walkability.
-        private static bool IsTraversable(HexMapRuntime map, bool[] blockedMask, Vector2Int cell)
-        {
-            if (!map.InBounds(cell.x, cell.y))
-            {
-                return false;
-            }
-
-            if (blockedMask == null || blockedMask.Length == 0)
-            {
-                return map.IsWalkable(cell.x, cell.y);
-            }
-
-            int index = map.GetIndex(cell.x, cell.y);
-            return index >= 0 && index < blockedMask.Length && !blockedMask[index];
         }
 
         // Pulls a point back toward the cell center so final destinations stay inside their hex.

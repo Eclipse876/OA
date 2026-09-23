@@ -1,0 +1,18 @@
+{
+    "name": "OA.Integrations.InputSystem",
+    "rootNamespace": "",
+    "references": [
+        "GUID:828d4c065865e3d4288b57c99fcbf84c",
+        "GUID:489ca5dc7543d98448ce32dbd4632775",
+        "GUID:073d410c97dc72b4f9f2df1b754fa1e6"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

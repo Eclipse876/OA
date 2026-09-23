@@ -1,4 +1,3 @@
-using OA.Simulation.Movement;
 using UnityEngine;
 
 namespace OA.Simulation.Movement
@@ -13,28 +12,32 @@ namespace OA.Simulation.Movement
     {
         Hold = 0,
         Move = 1,
-        Stop = 2
+        Stop = 2,
+        Pivot = 3
     }
 
     public struct MovementState
     {
         public Vector2 Position;
+        public Vector2 VelocityWorld;
         public float HeadingDegrees;
         public float SpeedKnots;
         public float YawRateDegreesPerSecond;
+        public float Rudder;
 
         public static MovementState Create(Vector2 position, float headingDegrees)
         {
             return new MovementState
             {
                 Position = position,
+                VelocityWorld = Vector2.zero,
                 HeadingDegrees = headingDegrees,
                 SpeedKnots = 0f,
-                YawRateDegreesPerSecond = 0f
+                YawRateDegreesPerSecond = 0f,
+                Rudder = 0f
             };
         }
     }
-
 
     public struct MovementCommand
     {
@@ -42,6 +45,9 @@ namespace OA.Simulation.Movement
         public Vector2 SteeringTarget;
         public float RemainingDistanceWorld;
         public MovementSpeedMode SpeedMode;
+        public float SpeedLimitKnots; // Optional speed limit for the command, used for speed-restricted maneuvers like tight turns or emergency stops.
+                                      // If 0 or less, no additional speed limit is applied beyond the normal cruise/flank speeds.
+        public float TerrainSpeedMultiplier; // Current water condition multiplier. 1 is calm water; rough water reduces commanded speed.
         public bool RouteChanged;
 
         public static MovementCommand Hold(Vector2 position, bool routeChanged = false)
@@ -52,6 +58,8 @@ namespace OA.Simulation.Movement
                 SteeringTarget = position,
                 RemainingDistanceWorld = 0f,
                 SpeedMode = MovementSpeedMode.Cruise,
+                SpeedLimitKnots = 0f,
+                TerrainSpeedMultiplier = 1f,
                 RouteChanged = routeChanged
             };
         }
@@ -60,7 +68,9 @@ namespace OA.Simulation.Movement
             Vector2 steeringTarget,
             float remainingDistanceWorld,
             MovementSpeedMode speedMode,
-            bool routeChanged = false)
+            float speedLimitKnots,
+            bool routeChanged = false,
+            float terrainSpeedMultiplier = 1f)
         {
             return new MovementCommand
             {
@@ -68,6 +78,8 @@ namespace OA.Simulation.Movement
                 SteeringTarget = steeringTarget,
                 RemainingDistanceWorld = Mathf.Max(0f, remainingDistanceWorld),
                 SpeedMode = speedMode,
+                SpeedLimitKnots = Mathf.Max(0f, speedLimitKnots),
+                TerrainSpeedMultiplier = Mathf.Clamp(terrainSpeedMultiplier, 0.001f, 1f),
                 RouteChanged = routeChanged
             };
         }
@@ -80,7 +92,23 @@ namespace OA.Simulation.Movement
                 SteeringTarget = position,
                 RemainingDistanceWorld = 0f,
                 SpeedMode = MovementSpeedMode.Cruise,
+                SpeedLimitKnots = 0f,
+                TerrainSpeedMultiplier = 1f,
                 RouteChanged = true
+            };
+        }
+
+        public static MovementCommand Pivot(Vector2 steeringTarget, bool routeChanged = false)
+        {
+            return new MovementCommand
+            {
+                Intent = MovementIntent.Pivot,
+                SteeringTarget = steeringTarget,
+                RemainingDistanceWorld = 0f,
+                SpeedMode = MovementSpeedMode.Cruise,
+                SpeedLimitKnots = 0f,
+                TerrainSpeedMultiplier = 1f,
+                RouteChanged = routeChanged
             };
         }
     }

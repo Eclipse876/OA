@@ -1,7 +1,7 @@
 // AStarHexPathService.cs:
-// This is the bridge between our homemade hex map and the A* package. It tells
-// the plugin "these hexes are water, these are bad news, please find boat paths
-// and do not ask too many questions."
+// Converts the authoritative runtime hex map into an A* PointGraph.
+// Each point node is placed directly on the corresponding visible tile center,
+// while the ship remains free to move continuously through world space.
 using System.Collections.Generic;
 using OA.Simulation.Navigation;
 using Pathfinding;
@@ -9,118 +9,239 @@ using UnityEngine;
 
 namespace OA.Integrations.AStar
 {
-    // Converts HexMapRuntime into an A* GridGraph and answers path requests in cell coords.
     public sealed class AStarHexPathService : MonoBehaviour, INavigationPathService
     {
-        // Graph setup exposed in the inspector so the scene can align to Tilemap/TGS layouts.
         [Header("Graph Settings")]
-            [SerializeField] private string graphName = "OA_HexGraph";
-            [SerializeField] private bool scanGraphOnRebuild = true;
+        [SerializeField] private string graphName = "OA_HexGraph";
+        [SerializeField] private bool logGraphRebuild = true;
 
-        //Preferred: align graph center to Unity Grid layout.
-            [SerializeField] private bool alignGraphToGridLayout = true;
-            [SerializeField] private GridLayout alignmentGridLayout;
-
-        //Fallback is no grid layout is assigned.
-            [SerializeField] private Vector2 manualGraphCenterWorld = Vector2.zero;
-            [SerializeField, Min(0.05f)] private float manualHexWidth = 1.1f;
-
-
-        // Cost tuning maps our small movement costs into A*'s integer penalty scale.
-        [Header("Cost Tuning")]
-            [SerializeField] private float roughPenaltyScale = 12000f;
-
-        // Neighbor buffer is reused while expanding safety zones around obstacles.
         private readonly Vector2Int[] neighborBuffer = new Vector2Int[6];
+        private readonly Dictionary<GraphNode, Vector2Int> cellByNode =
+            new Dictionary<GraphNode, Vector2Int>();
+        private readonly Dictionary<TraversalMaskKey, NavigationTraversalMask> traversalMasks =
+            new Dictionary<TraversalMaskKey, NavigationTraversalMask>();
+        private readonly Dictionary<NavigationTraversalMask, MaskTraversalProvider> traversalProviders =
+            new Dictionary<NavigationTraversalMask, MaskTraversalProvider>();
 
-        private GridGraph graph;
+        private PointGraph graph;
+        private PointNode[] nodesByCell;
+        private HexMapRuntime activeMap;
         private GraphMask graphMask;
+        private NavigationTraversalMask lastAppliedTraversalMask;
 
-        public bool IsReady => graph != null && AstarPath.active != null;
+        public bool IsReady =>
+            graph != null &&
+            nodesByCell != null &&
+            activeMap != null &&
+            AstarPath.active != null;
+
         public bool[] LastAppliedBlockedMask { get; private set; }
+        public int TraversalMaskCacheHits { get; private set; }
+        public int TraversalMaskCacheMisses { get; private set; }
 
-
-        // Rebuilds the A* graph from the current map and unit safety radius.
+        // Compatibility overload for callers that only provide a safety radius.
         public void RebuildGraph(HexMapRuntime map, float safetyRadiusWorld)
+        {
+            RebuildGraph(
+                map,
+                new NavigationProfile(safetyRadiusWorld, ShipDraftClass.Shallow));
+        }
+
+        // Builds an exact-position PointGraph for the current ship navigation profile.
+        public void RebuildGraph(HexMapRuntime map, NavigationProfile profile)
         {
             if (map == null)
             {
-                Debug.LogError("[AStarHexPathService] RebuildGraph called with null map.");
+                Debug.LogError(
+                    "[AStarHexPathService] Cannot rebuild graph: map is null.");
+                return;
+            }
+
+            if (!map.HasWorldCenters)
+            {
+                Debug.LogError(
+                    "[AStarHexPathService] Cannot build PointGraph before visible cell centers are cached.");
                 return;
             }
 
             if (AstarPath.active == null)
             {
-                Debug.LogError("[AStarHexPathService] Missing AstarPath component in scene.");
+                Debug.LogError(
+                    "[AStarHexPathService] Cannot rebuild graph: AstarPath component is missing in scene.");
                 return;
             }
 
-            EnsureGraph(map);
-            if (graph == null)
+            if (!EnsureGraph())
             {
                 return;
             }
 
-            // Inflate blockers by the unit safety radius before handing them to A*.
-            bool[] blockedWithSafety = BuildSafetyMask(map, safetyRadiusWorld);
-            LastAppliedBlockedMask = blockedWithSafety;
+            activeMap = map;
+            traversalMasks.Clear();
+            traversalProviders.Clear();
+            TraversalMaskCacheHits = 0;
+            TraversalMaskCacheMisses = 0;
 
-            // A* wants graph edits inside a work item so its internal state stays consistent.
+            lastAppliedTraversalMask = GetTraversalMask(map, profile);
+            LastAppliedBlockedMask = lastAppliedTraversalMask.BlockedCells;
+
             AstarPath.active.AddWorkItem(ctx =>
             {
-                for (int y = 0; y < map.Height; y++)
-                {
-                    for (int x = 0; x < map.Width; x++)
-                    {
-                        GridNodeBase node = graph.GetNode(x, y);
-                        if (node == null)
-                        {
-                            continue;
-                        }
+                graph.Clear();
 
-                        int index = map.GetIndex(x, y);
-                        bool walkable = !blockedWithSafety[index];
-                        node.Walkable = walkable;
+                nodesByCell = new PointNode[map.Width * map.Height];
+                cellByNode.Clear();
 
-                        // Convert movement cost into an A* penalty. Blocked nodes do not need penalties.
-                        float cellCost = map.GetMoveCost(x, y);
-                        uint penalty = cellCost <= 1.001f
-                            ? 0u
-                            : (uint)Mathf.RoundToInt((cellCost - 1f) * roughPenaltyScale);
+                BuildNodes(map);
+                BuildConnections(map);
 
-                        node.Penalty = walkable ? penalty : 0u;
-                    }
-                }
-
-                graph.RecalculateAllConnections();
+                graph.RebuildNodeLookup();
                 ctx.SetGraphDirty(graph);
             });
 
             AstarPath.active.FlushWorkItems();
+            graphMask = GraphMask.FromGraph(graph);
+
+            if (logGraphRebuild)
+            {
+                Debug.Log(
+                    $"[AStarHexPathService] PointGraph rebuilt: " +
+                    $"Nodes={graph.nodeCount}, " +
+                    $"Map={map.Width}x{map.Height}, " +
+                    $"Draft={profile.DraftClass}, " +
+                    $"SafetyRadius={profile.SafetyRadiusWorld:F2}");
+            }
         }
 
-        // Requests a path from A* and converts the resulting nodes back into map cells.
-        public bool TryFindPath(Vector2Int start, Vector2Int goal, List<Vector2Int> outPath)
+        // Selects a different visible profile without changing graph topology or node state.
+        // Individual path requests carry their immutable mask through an ITraversalProvider.
+        public void ApplyTraversalProfile(
+            HexMapRuntime map,
+            NavigationProfile profile)
         {
+            if (map == null)
+            {
+                Debug.LogError(
+                    "[AStarHexPathService] Cannot apply traversal profile: map is null.");
+                return;
+            }
+
+            if (!IsReady || map != activeMap)
+            {
+                // A new map needs complete topology construction before masks can be swapped.
+                RebuildGraph(map, profile);
+                return;
+            }
+
+            lastAppliedTraversalMask = GetTraversalMask(map, profile);
+            LastAppliedBlockedMask = lastAppliedTraversalMask.BlockedCells;
+        }
+
+        // Caches expanded draft/clearance masks. Map edits change Version and miss safely.
+        public NavigationTraversalMask GetTraversalMask(
+            HexMapRuntime map,
+            NavigationProfile profile)
+        {
+            if (map == null)
+            {
+                return null;
+            }
+
+            int safetySteps = Mathf.CeilToInt(
+                Mathf.Max(0f, profile.SafetyRadiusWorld) /
+                Mathf.Max(0.001f, map.CellSize));
+
+            TraversalMaskKey key = new TraversalMaskKey(
+                map.Version,
+                profile.DraftClass,
+                safetySteps);
+
+            if (map == activeMap &&
+                traversalMasks.TryGetValue(key, out NavigationTraversalMask cached))
+            {
+                TraversalMaskCacheHits++;
+                return cached;
+            }
+
+            TraversalMaskCacheMisses++;
+            NavigationTraversalMask created = new NavigationTraversalMask(
+                map,
+                map.Version,
+                profile,
+                BuildTraversalMask(map, profile));
+
+            if (map == activeMap)
+            {
+                traversalMasks[key] = created;
+            }
+
+            return created;
+        }
+
+        // Requests a route between two simulation cells and returns simulation cells.
+        public bool TryFindPath(
+            Vector2Int start,
+            Vector2Int goal,
+            List<Vector2Int> outPath)
+        {
+            return TryFindPath(
+                start,
+                goal,
+                lastAppliedTraversalMask,
+                outPath);
+        }
+
+        // Requests a path using immutable per-ship restrictions instead of graph mutations.
+        public bool TryFindPath(
+            Vector2Int start,
+            Vector2Int goal,
+            NavigationTraversalMask mask,
+            List<Vector2Int> outPath)
+        {
+            if (outPath == null)
+            {
+                return false;
+            }
+
             outPath.Clear();
 
-            if (graph == null || AstarPath.active == null)
+            if (!IsReady)
             {
                 return false;
             }
 
-            GridNodeBase startNode = graph.GetNode(start.x, start.y);
-            GridNodeBase goalNode = graph.GetNode(goal.x, goal.y);
-
-            if (startNode == null || goalNode == null || !startNode.Walkable || !goalNode.Walkable)
+            if (!activeMap.InBounds(start.x, start.y) ||
+                !activeMap.InBounds(goal.x, goal.y) ||
+                mask == null ||
+                mask.Map != activeMap ||
+                mask.MapVersion != activeMap.Version ||
+                mask.IsBlocked(start) ||
+                mask.IsBlocked(goal))
             {
                 return false;
             }
 
-            // Request uses node world positions, then the result gets converted back to grid coords.
-            ABPath request = ABPath.Construct((Vector3)startNode.position, (Vector3)goalNode.position, null);
+            PointNode startNode = GetNode(start);
+            PointNode goalNode = GetNode(goal);
+
+            if (startNode == null ||
+                goalNode == null ||
+                !startNode.Walkable ||
+                !goalNode.Walkable)
+            {
+                return false;
+            }
+
+            ABPath request = ABPath.Construct(
+                (Vector3)startNode.position,
+                (Vector3)goalNode.position,
+                null);
+
             request.Claim(this);
             request.traversalConstraint.graphMask = graphMask;
+            MaskTraversalProvider provider = GetTraversalProvider(mask);
+            request.traversalConstraint.traversalProvider = provider;
+            request.traversalCosts.traversalProvider = provider;
             request.calculatePartial = false;
 
             try
@@ -128,18 +249,26 @@ namespace OA.Integrations.AStar
                 AstarPath.StartPath(request);
                 request.BlockUntilCalculated();
 
-                bool success = !request.error && request.path != null && request.path.Count > 0;
-                if (!success)
+                if (request.error ||
+                    request.path == null ||
+                    request.path.Count == 0)
                 {
                     return false;
                 }
 
                 for (int i = 0; i < request.path.Count; i++)
                 {
-                    GridNodeBase n = request.path[i] as GridNodeBase;
-                    if (n != null)
+                    GraphNode returnedNode = request.path[i];
+
+                    if (!cellByNode.TryGetValue(returnedNode, out Vector2Int cell))
                     {
-                        outPath.Add(n.CoordinatesInGrid);
+                        continue;
+                    }
+
+                    if (outPath.Count == 0 ||
+                        outPath[outPath.Count - 1] != cell)
+                    {
+                        outPath.Add(cell);
                     }
                 }
 
@@ -151,74 +280,137 @@ namespace OA.Integrations.AStar
             }
         }
 
-        // Finds or creates the GridGraph, configures it as hexes, and scans it if requested.
-        private void EnsureGraph(HexMapRuntime map)
+        // Finds or creates the runtime PointGraph owned by this service.
+        private bool EnsureGraph()
         {
             AstarData data = AstarPath.active.data;
-            graph = data.gridGraph;
+
+            // Earlier sandbox builds stored a GridGraph under the same service-owned
+            // name. Remove only that legacy graph so its diagonal gizmo cannot sit
+            // behind the exact-position PointGraph and confuse alignment testing.
+            NavGraph legacyGraph = data.FindGraph(candidate =>
+                !(candidate is PointGraph) &&
+                candidate.name == graphName);
+
+            if (legacyGraph != null)
+            {
+                data.RemoveGraph(legacyGraph);
+
+                if (logGraphRebuild)
+                {
+                    Debug.Log(
+                        $"[AStarHexPathService] Removed legacy graph '{graphName}' " +
+                        "before building the PointGraph.");
+                }
+            }
+
+            graph = data.FindGraph(candidate =>
+                candidate is PointGraph &&
+                candidate.name == graphName) as PointGraph;
+
             if (graph == null)
             {
-                graph = data.AddGraph(typeof(GridGraph)) as GridGraph;
+                graph = data.AddGraph(typeof(PointGraph)) as PointGraph;
             }
 
             if (graph == null)
             {
-                Debug.LogError("[AStarHexPathService] Failed to create/read GridGraph.");
-                return;
+                Debug.LogError(
+                    "[AStarHexPathService] Failed to create or locate PointGraph.");
+                return false;
             }
 
             graph.name = graphName;
-            graph.SetGridShape(InspectorGridMode.Hexagonal);
-            graph.is2D = true;
-            graph.collision.use2D = true;
-            graph.collision.collisionCheck = false;
-            graph.collision.heightCheck = false;
-            graph.uniformEdgeCosts = true;
-            graph.neighbours = NumNeighbours.Six;
 
-            ApplyGraphTransform(map);
+            // Nodes and links are constructed directly from HexMapRuntime.
+            graph.root = null;
+            graph.searchTag = null;
+            graph.maxDistance = -1f;
+            graph.raycast = false;
+            graph.optimizeForSparseGraph = true;
+            graph.nearestNodeDistanceMode = PointGraph.NodeDistanceMode.Node;
 
-            if (scanGraphOnRebuild)
-            {
-                AstarPath.active.Scan();
-            }
-
-            graphMask = GraphMask.FromGraph(graph);
+            return true;
         }
 
-        // Sizes and places the A* graph so it lines up with the visible grid.
-        private void ApplyGraphTransform(HexMapRuntime map)
+        // Adds one graph node for every visible simulation cell.
+        // This method must only run inside an A* work item.
+        private void BuildNodes(HexMapRuntime map)
         {
-            // Best case: clone the Tilemap/GridLayout sizing so A* lands on top of the visible grid.
-            if (alignGraphToGridLayout && alignmentGridLayout != null)
+            for (int y = 0; y < map.Height; y++)
             {
-                float bootstrapNodeSize = GridGraph.ConvertHexagonSizeToNodeSize(
-                    InspectorGridHexagonNodeSize.Width,
-                    Mathf.Max(0.05f, manualHexWidth));
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int index = map.GetIndex(x, y);
+                    Vector2 center = map.GetWorldCenter(x, y);
 
-                graph.SetDimensions(map.Width, map.Height, bootstrapNodeSize);
-                graph.AlignToTilemap(alignmentGridLayout);
-                graph.SetDimensions(map.Width, map.Height, graph.nodeSize);
-                return;
+                    PointNode node = graph.AddNode(
+                        (Int3)new Vector3(center.x, center.y, 0f));
+
+                    node.Walkable = !map.IsBlocked(x, y);
+                    node.Penalty = 0u;
+
+                    nodesByCell[index] = node;
+                    cellByNode[node] = new Vector2Int(x, y);
+                }
             }
-
-            // Fallback: use manually configured center/hex width if no layout was assigned.
-            if (alignGraphToGridLayout && alignmentGridLayout == null)
-            {
-                Debug.LogWarning("[AStarHexPathService] alignGraphCenterToGrid enabled, but alignGraphToGridLayout enabled, but alignmentGridLayout is null. Using manual center/size fallback."); 
-            }
-
-            float nodeSize = GridGraph.ConvertHexagonSizeToNodeSize(
-                InspectorGridHexagonNodeSize.Width,
-                Mathf.Max(0.05f, manualHexWidth));
-
-            graph.SetDimensions(map.Width, map.Height, nodeSize);
-            graph.center = new Vector3(manualGraphCenterWorld.x, manualGraphCenterWorld.y, 0f);
-
         }
 
-        // Builds the final blocked mask, including extra clearance around obstacles.
-        private bool[] BuildSafetyMask(HexMapRuntime map, float safetyRadiusWorld)
+        // Copies the authoritative odd-row neighbor topology into A* connections.
+        // This method must only run inside an A* work item.
+        private void BuildConnections(HexMapRuntime map)
+        {
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int fromIndex = map.GetIndex(x, y);
+                    PointNode fromNode = nodesByCell[fromIndex];
+
+                    int neighborCount = map.GetNeighborCount(
+                        x,
+                        y,
+                        neighborBuffer);
+
+                    for (int i = 0; i < neighborCount; i++)
+                    {
+                        Vector2Int neighbor = neighborBuffer[i];
+                        int toIndex = map.GetIndex(neighbor.x, neighbor.y);
+
+                        // GraphNode.Connect creates a two-way connection.
+                        // Only process each pair once.
+                        if (toIndex <= fromIndex)
+                        {
+                            continue;
+                        }
+
+                        PointNode toNode = nodesByCell[toIndex];
+
+                        uint cost = (uint)(toNode.position - fromNode.position)
+                            .costMagnitude;
+
+                        GraphNode.Connect(fromNode, toNode, cost);
+                    }
+                }
+            }
+        }
+
+        private PointNode GetNode(Vector2Int cell)
+        {
+            if (activeMap == null ||
+                nodesByCell == null ||
+                !activeMap.InBounds(cell.x, cell.y))
+            {
+                return null;
+            }
+
+            return nodesByCell[activeMap.GetIndex(cell.x, cell.y)];
+        }
+
+        // Creates a ship-specific blocked mask from terrain, draft and clearance.
+        private bool[] BuildTraversalMask(
+            HexMapRuntime map,
+            NavigationProfile profile)
         {
             int count = map.Width * map.Height;
             bool[] blocked = new bool[count];
@@ -227,20 +419,23 @@ namespace OA.Integrations.AStar
             {
                 for (int x = 0; x < map.Width; x++)
                 {
-                    blocked[map.GetIndex(x, y)] = map.IsBlocked(x, y);
+                    blocked[map.GetIndex(x, y)] = IsForbiddenForShip(
+                        map,
+                        x,
+                        y,
+                        profile.DraftClass);
                 }
             }
 
-            // World-space safety gets rounded up into whole hex steps.
             int safetySteps = Mathf.CeilToInt(
-                Mathf.Max(0f, safetyRadiusWorld) / Mathf.Max(0.001f, map.CellSize));
+                Mathf.Max(0f, profile.SafetyRadiusWorld) /
+                Mathf.Max(0.001f, map.CellSize));
 
             if (safetySteps <= 0)
             {
                 return blocked;
             }
 
-            // Multi-source BFS starts from every blocked cell and paints nearby cells blocked too.
             bool[] visited = new bool[count];
             Queue<CellDepth> queue = new Queue<CellDepth>(count);
 
@@ -248,52 +443,176 @@ namespace OA.Integrations.AStar
             {
                 for (int x = 0; x < map.Width; x++)
                 {
-                    if (!map.IsBlocked(x, y))
+                    int index = map.GetIndex(x, y);
+
+                    if (!blocked[index])
                     {
                         continue;
                     }
 
-                    int idx = map.GetIndex(x, y);
-                    visited[idx] = true;
-                    queue.Enqueue(new CellDepth(new Vector2Int(x, y), 0));
+                    visited[index] = true;
+                    queue.Enqueue(
+                        new CellDepth(new Vector2Int(x, y), 0));
                 }
             }
 
             while (queue.Count > 0)
             {
                 CellDepth current = queue.Dequeue();
-                blocked[map.GetIndex(current.Cell.x, current.Cell.y)] = true;
+                int currentIndex = map.GetIndex(
+                    current.Cell.x,
+                    current.Cell.y);
+
+                blocked[currentIndex] = true;
 
                 if (current.Depth >= safetySteps)
                 {
                     continue;
                 }
 
-                int neighbors = map.GetNeighborCount(current.Cell.x, current.Cell.y, neighborBuffer);
-                for (int i = 0; i < neighbors; i++)
+                int neighborCount = map.GetNeighborCount(
+                    current.Cell.x,
+                    current.Cell.y,
+                    neighborBuffer);
+
+                for (int i = 0; i < neighborCount; i++)
                 {
                     Vector2Int next = neighborBuffer[i];
                     int nextIndex = map.GetIndex(next.x, next.y);
+
                     if (visited[nextIndex])
                     {
                         continue;
                     }
 
                     visited[nextIndex] = true;
-                    queue.Enqueue(new CellDepth(next, current.Depth + 1));
+                    queue.Enqueue(
+                        new CellDepth(next, current.Depth + 1));
                 }
             }
 
             return blocked;
         }
 
-        // Queue payload for safety-mask BFS: which cell we reached and how far from danger it is.
+        private static bool IsForbiddenForShip(
+            HexMapRuntime map,
+            int x,
+            int y,
+            ShipDraftClass draftClass)
+        {
+            return NavigationTerrainRules.IsForbiddenForShip(
+                map,
+                x,
+                y,
+                draftClass);
+        }
+
+        private MaskTraversalProvider GetTraversalProvider(
+            NavigationTraversalMask mask)
+        {
+            if (traversalProviders.TryGetValue(mask, out MaskTraversalProvider provider))
+            {
+                return provider;
+            }
+
+            provider = new MaskTraversalProvider(
+                mask,
+                cellByNode);
+
+            traversalProviders.Add(mask, provider);
+            return provider;
+        }
+
+        private readonly struct TraversalMaskKey
+        {
+            private readonly int mapVersion;
+            private readonly ShipDraftClass draftClass;
+            private readonly int safetySteps;
+
+            public TraversalMaskKey(
+                int mapVersion,
+                ShipDraftClass draftClass,
+                int safetySteps)
+            {
+                this.mapVersion = mapVersion;
+                this.draftClass = draftClass;
+                this.safetySteps = safetySteps;
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is TraversalMaskKey other &&
+                       mapVersion == other.mapVersion &&
+                       draftClass == other.draftClass &&
+                       safetySteps == other.safetySteps;
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int hash = mapVersion;
+                    hash = hash * 397 ^ (int)draftClass;
+                    hash = hash * 397 ^ safetySteps;
+                    return hash;
+                }
+            }
+        }
+
+        // Query-specific restrictions and water cost; immutable so A* worker threads can read it.
+        private sealed class MaskTraversalProvider : ITraversalProvider
+        {
+            private readonly NavigationTraversalMask mask;
+            private readonly Dictionary<GraphNode, Vector2Int> cellByNode;
+
+            public MaskTraversalProvider(
+                NavigationTraversalMask mask,
+                Dictionary<GraphNode, Vector2Int> cellByNode)
+            {
+                this.mask = mask;
+                this.cellByNode = cellByNode;
+            }
+
+            public bool CanTraverse(
+                ref TraversalConstraint traversalConstraint,
+                GraphNode node)
+            {
+                return cellByNode.TryGetValue(node, out Vector2Int cell) &&
+                       !mask.IsBlocked(cell);
+            }
+
+            public float GetTraversalCostMultiplier(
+                ref TraversalCosts traversalCosts,
+                GraphNode node)
+            {
+                if (!cellByNode.TryGetValue(node, out Vector2Int cell))
+                {
+                    return 1f;
+                }
+
+                return NavigationTerrainRules.GetTraversalCostMultiplier(
+                    mask.Map,
+                    cell.x,
+                    cell.y,
+                    mask.Profile.DraftClass);
+            }
+
+            public uint GetConnectionCost(
+                ref TraversalCosts traversalCosts,
+                GraphNode from,
+                GraphNode to)
+            {
+                // The multiplier already represents rough-water travel time.
+                // A second added cost would exaggerate the live slowdown.
+                return 0u;
+            }
+        }
+
         private struct CellDepth
         {
             public Vector2Int Cell;
             public int Depth;
 
-            // Small value constructor so queue entries stay readable.
             public CellDepth(Vector2Int cell, int depth)
             {
                 Cell = cell;

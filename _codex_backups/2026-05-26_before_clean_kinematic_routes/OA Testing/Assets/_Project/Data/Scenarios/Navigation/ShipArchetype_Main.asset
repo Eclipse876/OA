@@ -1,0 +1,17 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 32ffefc912a553a48a0a03433a844b1f, type: 3}
+  m_Name: ShipArchetype_Main
+  m_EditorClassIdentifier: OA.Simulation::OA.Simulation.Units.UnitArchetypeDefinition
+  displayName: New Unit
+  movementProfile: {fileID: 11400000, guid: 99a83a1fa0cb54c4d89ee587ad35a76b, type: 2}
+  presentationProfile: {fileID: 0}

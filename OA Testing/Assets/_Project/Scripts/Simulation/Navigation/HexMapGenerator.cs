@@ -12,9 +12,29 @@ namespace OA.Simulation.Navigation
     {
         // Rough water is passable, just expensive enough that paths prefer calmer tiles.
         private const float RoughMoveCost = 3.2f;
+        private const int OffshoreDistanceSteps = 12;
+        private const int OffshoreDepthStartDistance = 2;
+        private const int FullOffshoreDepthDistance = 9;
+        private const float AdjacentLandShallowChance = 0.1f;
+        private const float NearCoastShallowChance = 0.025f;
+        private const float OceanShallowChance = 0.0004f;
+        private const float CoastalAroundFeatureChance = 0.92f;
+        private const float CoastalShelfChance = 0.62f;
+        private const float OffshoreDepthNoiseScale = 26f;
+        private const float OffshoreDepthDetailScale = 13f;
+        private const float VeryDeepDepthScore = 0.46f;
+        private const float AbyssalDepthScore = 0.7f;
+        private const float NearLandVeryDeepDepthScore = 0.84f;
+        private const float NearLandAbyssalDepthScore = 0.94f;
+        private const float ReefNoiseScale = 8f;
+        private const float OpenOceanReefNoiseThreshold = 0.84f;
+        private const float MinimumLandCoverage = 0f;
+        private const float MaximumLandCoverage = 0.14f;
 
         // Reused scratch buffers so reachability checks do not keep allocating tiny garbage.
         private readonly List<Vector2Int> scratchFrontier = new List<Vector2Int>(2048);
+        private readonly List<int> scratchIndexFrontier = new List<int>(2048);
+        private readonly List<Vector2Int> scratchIslandFrontier = new List<Vector2Int>(128);
         private readonly HashSet<int> scratchVisited = new HashSet<int>();
         private readonly Vector2Int[] neighborBuffer = new Vector2Int[6];
 
@@ -35,34 +55,37 @@ namespace OA.Simulation.Navigation
 
             // Clamp the designer-facing knobs before they can make an unusable map.
             System.Random random = new System.Random(seed);
-            float clampedObstacleChance = Mathf.Clamp(obstacleChance, 0.05f, 0.45f);
+            float clampedObstacleChance = Mathf.Clamp(
+                obstacleChance,
+                MinimumLandCoverage,
+                MaximumLandCoverage);
+
             float clampedRoughChance = Mathf.Clamp(roughWaterChance, 0f, 0.85f);
             int clampedSmoothingPasses = Mathf.Clamp(smoothingPasses, 0, 8);
 
-            // First pass: roll blocked cells and rough-water costs from the seed.
+            // First pass: reset to ocean and roll rough-water costs from the seed.
             for (int y = 0; y < map.Height; y++)
             {
                 for (int x = 0; x < map.Width; x++)
                 {
-                    bool isBlocked = random.NextDouble() < clampedObstacleChance;
-
-                    map.SetBlocked(x, y, isBlocked);
-
-                    float cost = isBlocked
-                        ? 1f
-                        : (random.NextDouble() < clampedRoughChance ? RoughMoveCost : 1f);
-
+                    map.SetBlocked(x, y, false);
+                    float cost = random.NextDouble() < clampedRoughChance ? RoughMoveCost : 1f;
                     map.SetMoveCost(x, y, cost);
                 }
             }
 
-            // Smoothing turns noisy single-cell static into bigger obstacle blobs.
+            RollLandClusters(map, random, clampedObstacleChance);
+
+            // Smoothing removes isolated seed dots and fills cramped land holes.
             for (int i = 0; i < clampedSmoothingPasses; i++)
             {
                 ApplySmoothingPass(map);
             }
 
+            ApplyTileClasses(map, random);
+
             // Always clear breathing room around the guaranteed endpoints, then carve if needed.
+            // The carve intentionally stamps safe deep water for sandbox routing.
             ClearHexRadius(map, guaranteedStart, 2);
             ClearHexRadius(map, guaranteedGoal, 2);
             EnsureGuaranteedPath(map, guaranteedStart, guaranteedGoal);
@@ -81,18 +104,9 @@ namespace OA.Simulation.Navigation
                     int blockedNeighbors = CountBlockedNeighbors(map, x, y);
                     bool current = map.IsBlocked(x, y);
 
-                    if (blockedNeighbors >= 4)
-                    {
-                        nextBlocked[map.GetIndex(x, y)] = true;
-                    }
-                    else if (blockedNeighbors <= 2)
-                    {
-                        nextBlocked[map.GetIndex(x, y)] = false;
-                    }
-                    else
-                    {
-                        nextBlocked[map.GetIndex(x, y)] = current;
-                    }
+                    nextBlocked[map.GetIndex(x, y)] = current
+                        ? blockedNeighbors >= 1
+                        : blockedNeighbors >= 5;
                 }
             }
 
@@ -116,6 +130,803 @@ namespace OA.Simulation.Navigation
             }
         }
 
+        private void RollLandClusters(
+            HexMapRuntime map,
+            System.Random random,
+            float landCoverage)
+        {
+            int targetLandCells = Mathf.RoundToInt(
+                map.Width * map.Height * landCoverage);
+
+            if (targetLandCells <= 0)
+            {
+                return;
+            }
+
+            int placed = 0;
+            int spacing = CalculateIslandSpacing(landCoverage);
+            int attempts = 0;
+            int maxAttempts = Mathf.Max(200, targetLandCells * 24);
+
+            while (placed < targetLandCells && attempts < maxAttempts)
+            {
+                attempts++;
+
+                int x = random.Next(map.Width);
+                int y = random.Next(map.Height);
+
+                if (map.IsBlocked(x, y) ||
+                    HasBlockedWithinRadius(map, x, y, spacing))
+                {
+                    continue;
+                }
+
+                placed += GrowIslandCluster(
+                    map,
+                    x,
+                    y,
+                    Mathf.Min(RollIslandSize(random), targetLandCells - placed),
+                    random);
+            }
+
+            attempts = 0;
+            maxAttempts = Mathf.Max(200, (targetLandCells - placed) * 12);
+
+            while (placed < targetLandCells && attempts < maxAttempts)
+            {
+                attempts++;
+
+                int x = random.Next(map.Width);
+                int y = random.Next(map.Height);
+
+                if (map.IsBlocked(x, y))
+                {
+                    continue;
+                }
+
+                placed += GrowIslandCluster(
+                    map,
+                    x,
+                    y,
+                    Mathf.Min(RollIslandSize(random), targetLandCells - placed),
+                    random);
+            }
+        }
+
+        private int GrowIslandCluster(
+            HexMapRuntime map,
+            int startX,
+            int startY,
+            int targetCells,
+            System.Random random)
+        {
+            if (targetCells <= 0)
+            {
+                return 0;
+            }
+
+            scratchIslandFrontier.Clear();
+            scratchIslandFrontier.Add(new Vector2Int(startX, startY));
+            PaintLandCell(map, startX, startY);
+
+            int placed = 1;
+
+            while (placed < targetCells && scratchIslandFrontier.Count > 0)
+            {
+                int frontierIndex = random.Next(scratchIslandFrontier.Count);
+                Vector2Int current = scratchIslandFrontier[frontierIndex];
+                int neighborCount = map.GetNeighborCount(
+                    current.x,
+                    current.y,
+                    neighborBuffer);
+
+                bool grew = false;
+                float filledFraction = targetCells <= 1
+                    ? 1f
+                    : placed / (float)targetCells;
+
+                float growChance = Mathf.Lerp(0.88f, 0.42f, filledFraction);
+                int startNeighbor = random.Next(Mathf.Max(1, neighborCount));
+
+                for (int i = 0; i < neighborCount && placed < targetCells; i++)
+                {
+                    Vector2Int next = neighborBuffer[(startNeighbor + i) % neighborCount];
+
+                    if (map.IsBlocked(next.x, next.y) ||
+                        random.NextDouble() > growChance)
+                    {
+                        continue;
+                    }
+
+                    PaintLandCell(map, next.x, next.y);
+                    scratchIslandFrontier.Add(next);
+                    placed++;
+                    grew = true;
+                }
+
+                if (!grew)
+                {
+                    int last = scratchIslandFrontier.Count - 1;
+                    scratchIslandFrontier[frontierIndex] = scratchIslandFrontier[last];
+                    scratchIslandFrontier.RemoveAt(last);
+                }
+            }
+
+            return placed;
+        }
+
+        private static void PaintLandCell(HexMapRuntime map, int x, int y)
+        {
+            map.SetBlocked(x, y, true);
+            map.SetMoveCost(x, y, 1f);
+        }
+
+        private static int RollIslandSize(System.Random random)
+        {
+            double roll = random.NextDouble();
+
+            if (roll < 0.04)
+            {
+                return 1;
+            }
+
+            if (roll < 0.16)
+            {
+                return random.Next(3, 12);
+            }
+
+            if (roll < 0.62)
+            {
+                return random.Next(12, 44);
+            }
+
+            if (roll < 0.9)
+            {
+                return random.Next(44, 120);
+            }
+
+            return random.Next(120, 240);
+        }
+
+        private static int CalculateIslandSpacing(float landCoverage)
+        {
+            float density = Mathf.InverseLerp(
+                MinimumLandCoverage,
+                MaximumLandCoverage,
+                landCoverage);
+
+            return Mathf.RoundToInt(Mathf.Lerp(17f, 7f, density));
+        }
+
+        private bool HasBlockedWithinRadius(
+            HexMapRuntime map,
+            int centerX,
+            int centerY,
+            int radius)
+        {
+            if (radius <= 0)
+            {
+                return false;
+            }
+
+            Vector2Int center = new Vector2Int(centerX, centerY);
+
+            for (int y = -radius; y <= radius; y++)
+            {
+                for (int x = -radius; x <= radius; x++)
+                {
+                    Vector2Int cell = new Vector2Int(centerX + x, centerY + y);
+                    if (!map.InBounds(cell.x, cell.y))
+                    {
+                        continue;
+                    }
+
+                    if (HexMapRuntime.HexDistance(center, cell) > radius)
+                    {
+                        continue;
+                    }
+
+                    if (map.IsBlocked(cell.x, cell.y))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private void FillNearestLandDistances(
+            HexMapRuntime map,
+            int[] nearestLandDistance,
+            int maxDistance)
+        {
+            scratchIndexFrontier.Clear();
+
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int index = map.GetIndex(x, y);
+
+                    if (map.IsBlocked(x, y))
+                    {
+                        nearestLandDistance[index] = 0;
+                        scratchIndexFrontier.Add(index);
+                    }
+                    else
+                    {
+                        nearestLandDistance[index] = maxDistance + 1;
+                    }
+                }
+            }
+
+            int cursor = 0;
+            while (cursor < scratchIndexFrontier.Count)
+            {
+                int index = scratchIndexFrontier[cursor++];
+                int distance = nearestLandDistance[index];
+
+                if (distance >= maxDistance)
+                {
+                    continue;
+                }
+
+                int x = index % map.Width;
+                int y = index / map.Width;
+                int neighborCount = map.GetNeighborCount(x, y, neighborBuffer);
+
+                for (int i = 0; i < neighborCount; i++)
+                {
+                    Vector2Int n = neighborBuffer[i];
+                    int neighborIndex = map.GetIndex(n.x, n.y);
+                    int neighborDistance = distance + 1;
+
+                    if (nearestLandDistance[neighborIndex] <= neighborDistance)
+                    {
+                        continue;
+                    }
+
+                    nearestLandDistance[neighborIndex] = neighborDistance;
+                    scratchIndexFrontier.Add(neighborIndex);
+                }
+            }
+        }
+
+        private void ApplyTileClasses(HexMapRuntime map, System.Random random)
+        {
+            WaterDepthClass[] nextDepth = new WaterDepthClass[map.Width * map.Height];
+            LandElevationClass[] nextLandElevation =
+                new LandElevationClass[map.Width * map.Height];
+            int[] nearestLandDistance = new int[map.Width * map.Height];
+            float offshoreNoiseX = (float)random.NextDouble() * 4096f;
+            float offshoreNoiseY = (float)random.NextDouble() * 4096f;
+            float reefNoiseX = (float)random.NextDouble() * 4096f;
+            float reefNoiseY = (float)random.NextDouble() * 4096f;
+            FillNearestLandDistances(
+                map,
+                nearestLandDistance,
+                OffshoreDistanceSteps);
+
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int index = map.GetIndex(x, y);
+                    nextLandElevation[index] = LandElevationClass.Land;
+
+                    if (map.IsBlocked(x, y))
+                    {
+                        nextDepth[index] = WaterDepthClass.Shallow;
+                        nextLandElevation[index] = RollLandElevation(map, x, y, random);
+                        nearestLandDistance[index] = 0;
+                    }
+                    else 
+                    {
+                        int landDistance = nearestLandDistance[index];
+
+                        nextDepth[index] = RollShallowWater(
+                                landDistance,
+                                random)
+                            ? WaterDepthClass.Shallow
+                            : WaterDepthClass.Deep;
+                    }
+                }
+            }
+
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int index = map.GetIndex(x, y);
+
+                    if (map.IsBlocked(x, y) ||
+                        nextDepth[index] == WaterDepthClass.Shallow)
+                    {
+                        continue;
+                    }
+
+                    int landDistance = nearestLandDistance[index];
+                    bool touchesLandOrShallow =
+                        HasBlockedNeighbor(map, x, y) ||
+                        HasNeighborDepth(map, nextDepth, x, y, WaterDepthClass.Shallow);
+
+                    if (touchesLandOrShallow &&
+                        random.NextDouble() < CoastalAroundFeatureChance)
+                    {
+                        nextDepth[index] = WaterDepthClass.Coastal;
+                    }
+                    else if (landDistance <= 2 &&
+                             random.NextDouble() < CoastalShelfChance)
+                    {
+                        nextDepth[index] = WaterDepthClass.Coastal;
+                    }
+                    else if (landDistance > 2)
+                    {
+                        nextDepth[index] = SampleOffshoreDepth(
+                            x,
+                            y,
+                            landDistance,
+                            offshoreNoiseX,
+                            offshoreNoiseY);
+                    }
+                }
+            }
+
+            SoftenOceanDepthTransitions(map, nextDepth, nearestLandDistance);
+            ApplyOpenOceanReefs(
+                map,
+                nextDepth,
+                nearestLandDistance,
+                reefNoiseX,
+                reefNoiseY,
+                random);
+            ReduceIsolatedWaterDepths(map, nextDepth);
+            ExpandCoastalWaterAroundShallows(map, nextDepth);
+            SmoothLandElevations(map, nextLandElevation);
+            PromoteRarePeakCores(map, nextLandElevation, random);
+
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int index = map.GetIndex(x, y);
+                    map.SetDepthClass(x, y, nextDepth[index]);
+                    map.SetLandElevationClass(x, y, nextLandElevation[index]);
+                }
+            }
+        }
+
+        private static bool RollShallowWater(
+            int nearestLandDistance,
+            System.Random random)
+        {
+            double roll = random.NextDouble();
+
+            if (nearestLandDistance == 1)
+            {
+                return roll < AdjacentLandShallowChance;
+            }
+
+            if (nearestLandDistance <= 2)
+            {
+                return roll < NearCoastShallowChance;
+            }
+
+            return false;
+        }
+
+        private static WaterDepthClass SampleOffshoreDepth(
+            int x,
+            int y,
+            int nearestLandDistance,
+            float offshoreNoiseX,
+            float offshoreNoiseY)
+        {
+            float broad = Mathf.PerlinNoise(
+                (x + offshoreNoiseX) / OffshoreDepthNoiseScale,
+                (y + offshoreNoiseY) / OffshoreDepthNoiseScale);
+            float detail = Mathf.PerlinNoise(
+                (x + offshoreNoiseX * 0.73f) / OffshoreDepthDetailScale,
+                (y + offshoreNoiseY * 0.73f) / OffshoreDepthDetailScale);
+            float depthScore = broad * 0.82f + detail * 0.18f;
+            float offshoreFactor = Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(
+                    OffshoreDepthStartDistance,
+                    FullOffshoreDepthDistance,
+                    nearestLandDistance));
+            float abyssalThreshold = Mathf.Lerp(
+                NearLandAbyssalDepthScore,
+                AbyssalDepthScore,
+                offshoreFactor);
+            float veryDeepThreshold = Mathf.Lerp(
+                NearLandVeryDeepDepthScore,
+                VeryDeepDepthScore,
+                offshoreFactor);
+
+            if (depthScore >= abyssalThreshold)
+            {
+                return WaterDepthClass.Abyssal;
+            }
+
+            if (depthScore >= veryDeepThreshold)
+            {
+                return WaterDepthClass.VeryDeep;
+            }
+
+            return WaterDepthClass.Deep;
+        }
+
+        private void SoftenOceanDepthTransitions(
+            HexMapRuntime map,
+            WaterDepthClass[] depthClasses,
+            int[] nearestLandDistance)
+        {
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    if (map.IsBlocked(x, y))
+                    {
+                        continue;
+                    }
+
+                    int index = map.GetIndex(x, y);
+                    WaterDepthClass depthClass = depthClasses[index];
+
+                    if (depthClass == WaterDepthClass.Shallow ||
+                        depthClass == WaterDepthClass.Coastal)
+                    {
+                        continue;
+                    }
+
+                    int deepNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        WaterDepthClass.Deep);
+                    int veryDeepNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        WaterDepthClass.VeryDeep);
+                    int abyssalNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        WaterDepthClass.Abyssal);
+
+                    if (depthClass == WaterDepthClass.Abyssal)
+                    {
+                        if (nearestLandDistance[index] < FullOffshoreDepthDistance ||
+                            veryDeepNeighbors + abyssalNeighbors < 2 ||
+                            deepNeighbors >= 4)
+                        {
+                            depthClasses[index] = WaterDepthClass.VeryDeep;
+                        }
+
+                        continue;
+                    }
+
+                    if (depthClass == WaterDepthClass.VeryDeep)
+                    {
+                        if (deepNeighbors >= 5 &&
+                            veryDeepNeighbors <= 1 &&
+                            abyssalNeighbors == 0)
+                        {
+                            depthClasses[index] = WaterDepthClass.Deep;
+                        }
+
+                        continue;
+                    }
+
+                    if (nearestLandDistance[index] >= FullOffshoreDepthDistance &&
+                        (veryDeepNeighbors >= 3 ||
+                         (abyssalNeighbors > 0 && veryDeepNeighbors > 0)))
+                    {
+                        depthClasses[index] = WaterDepthClass.VeryDeep;
+                    }
+                }
+            }
+        }
+
+        private void ApplyOpenOceanReefs(
+            HexMapRuntime map,
+            WaterDepthClass[] depthClasses,
+            int[] nearestLandDistance,
+            float reefNoiseX,
+            float reefNoiseY,
+            System.Random random)
+        {
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int index = map.GetIndex(x, y);
+                    if (map.IsBlocked(x, y) ||
+                        nearestLandDistance[index] <= 2 ||
+                        depthClasses[index] != WaterDepthClass.Deep)
+                    {
+                        continue;
+                    }
+
+                    int deepNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        WaterDepthClass.Deep);
+                    int veryDeepNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        WaterDepthClass.VeryDeep);
+                    int abyssalNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        WaterDepthClass.Abyssal);
+
+                    if (deepNeighbors < 3 ||
+                        veryDeepNeighbors > 1 ||
+                        abyssalNeighbors > 0)
+                    {
+                        continue;
+                    }
+
+                    float reefNoise = Mathf.PerlinNoise(
+                        (x + reefNoiseX) / ReefNoiseScale,
+                        (y + reefNoiseY) / ReefNoiseScale);
+
+                    if (reefNoise > OpenOceanReefNoiseThreshold ||
+                        random.NextDouble() < OceanShallowChance)
+                    {
+                        depthClasses[index] = WaterDepthClass.Shallow;
+                    }
+                }
+            }
+        }
+
+        private void ExpandCoastalWaterAroundShallows(
+            HexMapRuntime map,
+            WaterDepthClass[] depthClasses)
+        {
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int index = map.GetIndex(x, y);
+                    if (map.IsBlocked(x, y) ||
+                        depthClasses[index] != WaterDepthClass.Deep ||
+                        !HasNeighborDepth(map, depthClasses, x, y, WaterDepthClass.Shallow))
+                    {
+                        continue;
+                    }
+
+                    depthClasses[index] = WaterDepthClass.Coastal;
+                }
+            }
+        }
+
+        private LandElevationClass RollLandElevation(
+            HexMapRuntime map,
+            int x,
+            int y,
+            System.Random random)
+        {
+            int blockedNeighbors = CountBlockedNeighbors(map, x, y);
+            float interiorFactor = Mathf.InverseLerp(1f, 6f, blockedNeighbors);
+            float interiorSquared = interiorFactor * interiorFactor;
+            float interiorCubed = interiorSquared * interiorFactor;
+
+            float peakChance = blockedNeighbors >= 5
+                ? 0.006f * interiorCubed
+                : 0f;
+            float mountainChance = blockedNeighbors >= 4
+                ? Mathf.Lerp(0.008f, 0.065f, interiorSquared)
+                : 0f;
+            float largeHillChance = Mathf.Lerp(0.055f, 0.2f, interiorFactor);
+            float hillChance = Mathf.Lerp(0.32f, 0.43f, interiorFactor);
+
+            if (blockedNeighbors <= 2)
+            {
+                largeHillChance *= 0.45f;
+                hillChance *= 0.82f;
+            }
+
+            if (blockedNeighbors <= 1)
+            {
+                largeHillChance *= 0.25f;
+                hillChance *= 0.65f;
+            }
+
+            double roll = random.NextDouble();
+
+            if (roll < peakChance)
+            {
+                return LandElevationClass.Peak;
+            }
+
+            roll -= peakChance;
+            if (roll < mountainChance)
+            {
+                return LandElevationClass.Mountain;
+            }
+
+            roll -= mountainChance;
+            if (roll < largeHillChance)
+            {
+                return LandElevationClass.LargeHill;
+            }
+
+            roll -= largeHillChance;
+            return roll < hillChance
+                ? LandElevationClass.Hill
+                : LandElevationClass.Land;
+        }
+
+        private void SmoothLandElevations(
+            HexMapRuntime map,
+            LandElevationClass[] elevationClasses)
+        {
+            const int passes = 2;
+
+            for (int pass = 0; pass < passes; pass++)
+            {
+                for (int y = 0; y < map.Height; y++)
+                {
+                    for (int x = 0; x < map.Width; x++)
+                    {
+                        if (!map.IsBlocked(x, y))
+                        {
+                            continue;
+                        }
+
+                        int index = map.GetIndex(x, y);
+                        int weightedSum = (int)elevationClasses[index] * 2;
+                        int samples = 2;
+                        int neighborCount = map.GetNeighborCount(x, y, neighborBuffer);
+
+                        for (int i = 0; i < neighborCount; i++)
+                        {
+                            Vector2Int n = neighborBuffer[i];
+                            if (!map.IsBlocked(n.x, n.y))
+                            {
+                                continue;
+                            }
+
+                            weightedSum += (int)elevationClasses[map.GetIndex(n.x, n.y)];
+                            samples++;
+                        }
+
+                        int smoothed = Mathf.RoundToInt(weightedSum / (float)samples);
+                        elevationClasses[index] = (LandElevationClass)Mathf.Clamp(
+                            smoothed,
+                            (int)LandElevationClass.Land,
+                            (int)LandElevationClass.Peak);
+                    }
+                }
+            }
+        }
+
+        private void PromoteRarePeakCores(
+            HexMapRuntime map,
+            LandElevationClass[] elevationClasses,
+            System.Random random)
+        {
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    int index = map.GetIndex(x, y);
+                    if (!map.IsBlocked(x, y) ||
+                        elevationClasses[index] != LandElevationClass.Mountain ||
+                        CountBlockedNeighbors(map, x, y) < 5)
+                    {
+                        continue;
+                    }
+
+                    int highlandNeighbors = 0;
+                    int neighborCount = map.GetNeighborCount(x, y, neighborBuffer);
+
+                    for (int i = 0; i < neighborCount; i++)
+                    {
+                        Vector2Int n = neighborBuffer[i];
+                        if (!map.IsBlocked(n.x, n.y))
+                        {
+                            continue;
+                        }
+
+                        LandElevationClass neighborElevation =
+                            elevationClasses[map.GetIndex(n.x, n.y)];
+
+                        if ((int)neighborElevation >= (int)LandElevationClass.LargeHill)
+                        {
+                            highlandNeighbors++;
+                        }
+                    }
+
+                    if (highlandNeighbors < 3)
+                    {
+                        continue;
+                    }
+
+                    float peakChance = highlandNeighbors >= 5 ? 0.12f : 0.05f;
+                    if (random.NextDouble() < peakChance)
+                    {
+                        elevationClasses[index] = LandElevationClass.Peak;
+                    }
+                }
+            }
+        }
+
+        private void ReduceIsolatedWaterDepths(
+            HexMapRuntime map,
+            WaterDepthClass[] depthClasses)
+        {
+            for (int y = 0; y < map.Height; y++)
+            {
+                for (int x = 0; x < map.Width; x++)
+                {
+                    if (map.IsBlocked(x, y))
+                    {
+                        continue;
+                    }
+
+                    int index = map.GetIndex(x, y);
+                    WaterDepthClass depthClass = depthClasses[index];
+                    bool reefFeature = depthClass == WaterDepthClass.Shallow;
+                    bool deepFeature = depthClass == WaterDepthClass.VeryDeep ||
+                                       depthClass == WaterDepthClass.Abyssal;
+
+                    if (!reefFeature && !deepFeature)
+                    {
+                        continue;
+                    }
+
+                    int matchingNeighbors = CountNeighborDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y,
+                        depthClass);
+
+                    if (reefFeature &&
+                        (matchingNeighbors > 0 || HasBlockedNeighbor(map, x, y)))
+                    {
+                        continue;
+                    }
+
+                    if (deepFeature && matchingNeighbors > 1)
+                    {
+                        continue;
+                    }
+
+                    WaterDepthClass replacement = GetDominantNeighborWaterDepth(
+                        map,
+                        depthClasses,
+                        x,
+                        y);
+
+                    if (replacement == WaterDepthClass.Shallow &&
+                        !HasBlockedNeighbor(map, x, y))
+                    {
+                        replacement = WaterDepthClass.Deep;
+                    }
+
+                    depthClasses[index] = replacement == depthClass
+                        ? WaterDepthClass.Deep
+                        : replacement;
+                }
+            }
+        }
 
         // Counts blocked neighbors around one hex so smoothing knows whether it should flip.
         private int CountBlockedNeighbors(HexMapRuntime map, int centerX, int centerY)
@@ -133,6 +944,124 @@ namespace OA.Simulation.Navigation
             }
 
             return count;
+        }
+
+        private bool HasBlockedNeighbor(HexMapRuntime map, int centerX, int centerY)
+        {
+            int neighborCount = map.GetNeighborCount(centerX, centerY, neighborBuffer);
+        
+            for (int i = 0; i < neighborCount; i++)
+            {
+                Vector2Int n = neighborBuffer[i];
+                if (map.IsBlocked(n.x, n.y))
+                {
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
+        private bool HasNeighborDepth(
+            HexMapRuntime map,
+            WaterDepthClass[] depthClasses,
+            int centerX,
+            int centerY,
+            WaterDepthClass depthClass)
+        {
+            return CountNeighborDepth(
+                map,
+                depthClasses,
+                centerX,
+                centerY,
+                depthClass) > 0;
+        }
+
+        private int CountNeighborDepth(
+            HexMapRuntime map,
+            WaterDepthClass[] depthClasses,
+            int centerX,
+            int centerY,
+            WaterDepthClass depthClass)
+        {
+            int neighborCount = map.GetNeighborCount(centerX, centerY, neighborBuffer);
+            int count = 0;
+
+            for (int i = 0; i < neighborCount; i++)
+            {
+                Vector2Int n = neighborBuffer[i];
+                if (depthClasses[map.GetIndex(n.x, n.y)] == depthClass)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private WaterDepthClass GetDominantNeighborWaterDepth(
+            HexMapRuntime map,
+            WaterDepthClass[] depthClasses,
+            int centerX,
+            int centerY)
+        {
+            int shallowCount = 0;
+            int deepCount = 0;
+            int coastalCount = 0;
+            int veryDeepCount = 0;
+            int abyssalCount = 0;
+            int neighborCount = map.GetNeighborCount(centerX, centerY, neighborBuffer);
+
+            for (int i = 0; i < neighborCount; i++)
+            {
+                Vector2Int n = neighborBuffer[i];
+                if (map.IsBlocked(n.x, n.y))
+                {
+                    continue;
+                }
+
+                switch (depthClasses[map.GetIndex(n.x, n.y)])
+                {
+                    case WaterDepthClass.Shallow:
+                        shallowCount++;
+                        break;
+                    case WaterDepthClass.Coastal:
+                        coastalCount++;
+                        break;
+                    case WaterDepthClass.VeryDeep:
+                        veryDeepCount++;
+                        break;
+                    case WaterDepthClass.Abyssal:
+                        abyssalCount++;
+                        break;
+                    default:
+                        deepCount++;
+                        break;
+                }
+            }
+
+            WaterDepthClass bestDepth = WaterDepthClass.Deep;
+            int bestCount = deepCount;
+
+            SelectDominantDepth(WaterDepthClass.Shallow, shallowCount, ref bestDepth, ref bestCount);
+            SelectDominantDepth(WaterDepthClass.Coastal, coastalCount, ref bestDepth, ref bestCount);
+            SelectDominantDepth(WaterDepthClass.VeryDeep, veryDeepCount, ref bestDepth, ref bestCount);
+            SelectDominantDepth(WaterDepthClass.Abyssal, abyssalCount, ref bestDepth, ref bestCount);
+
+            return bestDepth;
+        }
+
+        private static void SelectDominantDepth(
+            WaterDepthClass candidate,
+            int candidateCount,
+            ref WaterDepthClass bestDepth,
+            ref int bestCount)
+        {
+            if (candidateCount > bestCount)
+            {
+                bestDepth = candidate;
+                bestCount = candidateCount;
+            }
         }
 
         // Clears a small hex-shaped patch around important cells like spawn and goal.
@@ -155,6 +1084,8 @@ namespace OA.Simulation.Navigation
 
                     map.SetBlocked(cell.x, cell.y, false);
                     map.SetMoveCost(cell.x, cell.y, 1f);
+                    map.SetDepthClass(cell.x, cell.y, WaterDepthClass.Deep);
+                    map.SetLandElevationClass(cell.x, cell.y, LandElevationClass.Land);
                 }
             }
         }
