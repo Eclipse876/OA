@@ -74,6 +74,11 @@ namespace TGS.PathFinding {
             set { }
         }
 
+        public float TurnCost {
+            get { return 0; }
+            set { }
+        }
+
         public CellType CellShape {
             get { return CellType.Irregular; }
             set { }
@@ -235,10 +240,11 @@ namespace TGS.PathFinding {
                         if (!isStartOrEndException) continue;
                     }
 
-                    // Use clearance data array if provided (thread-safe), otherwise fall back to cell.clearance
-                    int cellClearance = mClearanceData != null ? mClearanceData[ncell.index] : ncell.clearance;
-                    if (cellClearance < mMinClearance) {
-                        continue;
+                    if (mMinClearance > 1) {
+                        int cellClearance = mClearanceData != null ? mClearanceData[ncell.index] : ncell.clearance;
+                        if (cellClearance < mMinClearance) {
+                            continue;
+                        }
                     }
 
                     if (!mIncludeInvisibleCells && !ncell.visible)

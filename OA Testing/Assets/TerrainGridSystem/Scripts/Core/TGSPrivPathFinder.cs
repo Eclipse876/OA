@@ -22,6 +22,7 @@ namespace TGS
         byte[] clearanceCache;
         bool clearanceComputed;
         int clearanceCellGroupMask;
+        bool clearanceBordersAsObstacles;
         readonly object clearanceLock = new object();
 
         IPathFinder GetPathFinder() {
@@ -79,12 +80,17 @@ namespace TGS
         /// Thread-safe: computes once and caches in a byte array.
         /// </summary>
         public void ComputeClearance(int cellGroupMask) {
+            ComputeClearance(cellGroupMask, false);
+        }
+
+        public void ComputeClearance(int cellGroupMask, bool gridBordersAsObstacles) {
 
             lock (clearanceLock) {
-                if (clearanceComputed && clearanceCellGroupMask == cellGroupMask) return;
+                if (clearanceComputed && clearanceCellGroupMask == cellGroupMask && clearanceBordersAsObstacles == gridBordersAsObstacles) return;
 
                 clearanceComputed = true;
                 clearanceCellGroupMask = cellGroupMask;
+                clearanceBordersAsObstacles = gridBordersAsObstacles;
 
                 int cellsCount = cells.Count;
 
@@ -100,38 +106,132 @@ namespace TGS
                     cells[k].clearance = 0;
                 }
 
-                int maxDim = Mathf.Max(rowCount, columnCount);
-                // uses true clearance
-                for (int j = rowCount - 1; j >= 0; j--) {
-                    for (int k = 0; k < columnCount; k++) {
-                        Cell cell = CellGetAtPosition(k, j);
-                        if (cell == null) continue;
-                        for (int maxClearance = 2; maxClearance < maxDim; maxClearance++) {
-                            bool blocked = false;
-                            int maxIter = maxClearance * maxClearance;
-                            for (int i = 1; i < maxIter; i++) {
-                                int nj = j - (i / maxClearance);
-                                int nk = k + (i % maxClearance);
-                                if (nj < 0 || nk >= columnCount) {
+                if (_gridTopology == GridTopology.Hexagonal) {
+                    ComputeClearanceHexDisk(cellGroupMask, gridBordersAsObstacles);
+                } else {
+                    ComputeClearanceBox(cellGroupMask, gridBordersAsObstacles);
+                }
+            }
+        }
+
+        void ComputeClearanceBox(int cellGroupMask, bool gridBordersAsObstacles) {
+            int maxDim = Mathf.Max(rowCount, columnCount);
+            // uses true clearance (axis-aligned square in row/column space; valid for box grids only)
+            for (int j = rowCount - 1; j >= 0; j--) {
+                for (int k = 0; k < columnCount; k++) {
+                    Cell cell = CellGetAtPosition(k, j);
+                    if (cell == null) continue;
+                    byte clearanceValue = (byte)Mathf.Min(maxDim - 1, 255);
+                    for (int maxClearance = 2; maxClearance < maxDim; maxClearance++) {
+                        bool blocked = false;
+                        int maxIter = maxClearance * maxClearance;
+                        for (int i = 1; i < maxIter; i++) {
+                            int nj = j - (i / maxClearance);
+                            int nk = k + (i % maxClearance);
+                            if (nj < 0 || nk >= columnCount) {
+                                if (gridBordersAsObstacles) {
                                     blocked = true;
                                     break;
                                 }
-                                Cell neighbour = CellGetAtPosition(nk, nj);
-                                if (neighbour == null || (neighbour.group & cellGroupMask) == 0 || !neighbour.canCross) {
-                                    blocked = true;
-                                    break;
-                                }
+                                continue;
                             }
-                            if (blocked) {
-                                byte clearanceValue = (byte)(maxClearance - 1);
-                                cell.clearance = clearanceValue;
-                                clearanceCache[cell.index] = clearanceValue;
+                            Cell neighbour = CellGetAtPosition(nk, nj);
+                            if (neighbour == null || (neighbour.group & cellGroupMask) == 0 || !neighbour.canCross) {
+                                blocked = true;
                                 break;
                             }
                         }
+                        if (blocked) {
+                            clearanceValue = (byte)(maxClearance - 1);
+                            break;
+                        }
+                    }
+                    cell.clearance = clearanceValue;
+                    clearanceCache[cell.index] = clearanceValue;
+                }
+            }
+        }
+
+        void ComputeClearanceHexDisk(int cellGroupMask, bool gridBordersAsObstacles) {
+            int maxDim = Mathf.Max(rowCount, columnCount);
+
+            for (int row = 0; row < rowCount; row++) {
+                for (int col = 0; col < columnCount; col++) {
+                    Cell cell = CellGetAtPosition(col, row);
+                    if (cell == null) continue;
+
+                    if (!IsClearanceTraversable(cell, cellGroupMask)) {
+                        continue;
+                    }
+
+                    ClearanceRowColToAxial(row, col, out int ax, out int ay);
+
+                    // clearance 1 = disk of hex-radius 0 (the cell itself); increment while full rings fit
+                    byte clearance = 1;
+                    for (int ring = 1; ring < maxDim; ring++) {
+                        if (!IsHexRingClear(ax, ay, ring, cellGroupMask, gridBordersAsObstacles)) {
+                            break;
+                        }
+                        clearance = (byte)(ring + 1);
+                    }
+
+                    cell.clearance = clearance;
+                    clearanceCache[cell.index] = clearance;
+                }
+            }
+        }
+
+        static bool IsClearanceTraversable(Cell cell, int cellGroupMask) {
+            return cell != null && cell.canCross && (cell.group & cellGroupMask) != 0;
+        }
+
+        void ClearanceRowColToAxial(int row, int col, out int ax, out int ay) {
+            int offset = _evenLayout ? 0 : 1;
+            if (_pointyTopHexagons) {
+                ay = row;
+                ax = col - Mathf.FloorToInt((row + offset) / 2f);
+            } else {
+                ax = col;
+                ay = row - Mathf.FloorToInt((col + offset) / 2f);
+            }
+        }
+
+        bool ClearanceAxialToRowCol(int ax, int ay, out int row, out int col) {
+            int offset = _evenLayout ? 0 : 1;
+            if (_pointyTopHexagons) {
+                row = ay;
+                col = ax + Mathf.FloorToInt((ay + offset) / 2f);
+            } else {
+                col = ax;
+                row = ay + Mathf.FloorToInt((ax + offset) / 2f);
+            }
+            return row >= 0 && row < rowCount && col >= 0 && col < columnCount;
+        }
+
+        bool IsHexRingClear(int x0, int y0, int ring, int cellGroupMask, bool gridBordersAsObstacles) {
+            for (int dq = -ring; dq <= ring; dq++) {
+                int drStart = Math.Max(-ring, -dq - ring);
+                int drEnd = Math.Min(ring, -dq + ring);
+                for (int dr = drStart; dr <= drEnd; dr++) {
+                    int dist = Math.Max(Math.Abs(dq), Math.Max(Math.Abs(dr), Math.Abs(dq + dr)));
+                    if (dist != ring) {
+                        continue;
+                    }
+                    int ax = x0 + dq;
+                    int ay = y0 + dr;
+                    if (!ClearanceAxialToRowCol(ax, ay, out int row, out int col)) {
+                        if (gridBordersAsObstacles) {
+                            return false;
+                        }
+                        continue;
+                    }
+                    Cell neighbour = CellGetAtPosition(col, row);
+                    if (!IsClearanceTraversable(neighbour, cellGroupMask)) {
+                        return false;
                     }
                 }
             }
+            return true;
         }
 
         /// <summary>

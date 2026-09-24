@@ -11,6 +11,6 @@ AssetOrigin:
   serializedVersion: 1
   productId: 244921
   packageName: Terrain Grid System 2
-  packageVersion: 21.0.6
+  packageVersion: 22.1
   assetPath: Assets/TerrainGridSystem/Resources/Shaders/UnlitSurfacesColorGround.shader
-  uploadId: 879996
+  uploadId: 977730

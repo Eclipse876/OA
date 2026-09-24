@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 namespace TGS {
 
@@ -12,6 +13,8 @@ namespace TGS {
     public delegate void TerritoryHighlightEvent(TerrainGridSystem tgs, int territoryIndex, ref bool cancelHighlight);
     public delegate void TerritoryClickEvent(TerrainGridSystem tgs, int territoryIndex, int regionIndex, int buttonIndex);
     public delegate void TerritoryRegionClickEvent(TerrainGridSystem tgs, int territoryIndex, int regionIndex, int buttonIndex);
+
+    public delegate void TerritoryIndicesChangedEvent(TerrainGridSystem tgs, int removedTerritoryIndex, List<int> oldToNewIndices);
 
     public delegate float PathFindingEvent(TerrainGridSystem tgs, int cellIndex, object data = null);
 
@@ -105,6 +108,11 @@ namespace TGS {
         /// Occurs when user releases the mouse button on the same territory that started clicking
         /// </summary>
         public event TerritoryClickEvent OnTerritoryClick;
+
+        /// <summary>
+        /// Occurs after territory indices shift due to a territory removal. Provides a mapping from old indices to new indices (-1 = removed) so cached indices can be remapped.
+        /// </summary>
+        public event TerritoryIndicesChangedEvent OnTerritoryIndicesChanged;
 
         /// <summary>
         /// Occurs when user releases the mouse button on a territory

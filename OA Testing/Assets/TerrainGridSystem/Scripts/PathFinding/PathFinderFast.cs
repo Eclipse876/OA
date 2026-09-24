@@ -40,6 +40,7 @@ namespace TGS.PathFinding {
 		CellType mCellShape;
 		float mHEstimate = 1;
 		float mHeavyDiagonalsCost = 1.4f;
+		float mTurnCost;
 		int mMaxSteps = 2000;
 		float mMaxSearchCost = 100000;
 		float mMaxCellCrossCost;
@@ -222,6 +223,11 @@ namespace TGS.PathFinding {
 			set { mHeavyDiagonalsCost = value; }
 		}
 
+		public float TurnCost {
+			get { return mTurnCost; }
+			set { mTurnCost = value; }
+		}
+
 		public CellType CellShape {
 			get { return mCellShape; }
 			set { mCellShape = value; }
@@ -342,6 +348,18 @@ namespace TGS.PathFinding {
 
 			mLocation = (startCell.row << mRowCountLog2) + startCell.column;
 			mEndLocation = (endCell.row << mRowCountLog2) + endCell.column;
+
+			// precompute destination axial coords for the hexagonal heuristic (constant during the search)
+			int hexOffset = evenLayout ? 0 : 1;
+			int endHexX, endHexY;
+			if (mCellShape == CellType.PointyTopHexagon) {
+				endHexY = endCell.row;
+				endHexX = endCell.column - (endCell.row + hexOffset) / 2;
+			} else {
+				endHexY = endCell.row - (endCell.column + hexOffset) / 2;
+				endHexX = endCell.column;
+			}
+
 			mCalcGrid [mLocation].G = 0;
 			mCalcGrid [mLocation].F = mHEstimate;
 			mCalcGrid [mLocation].PX = (ushort)startCell.column;
@@ -443,10 +461,11 @@ namespace TGS.PathFinding {
                     if (!mIncludeInvisibleCells && !nextCell.visible)
 						continue;
 
-					// Use clearance data array if provided (thread-safe), otherwise fall back to cell.clearance
-					int cellClearance = mClearanceData != null ? mClearanceData[nextCell.index] : nextCell.clearance;
-                    if (cellClearance < mMinClearance) {
-                        continue;
+                    if (mMinClearance > 1) {
+                        int cellClearance = mClearanceData != null ? mClearanceData[nextCell.index] : nextCell.clearance;
+                        if (cellClearance < mMinClearance) {
+                            continue;
+                        }
                     }
 
 					float gridValue;
@@ -489,6 +508,15 @@ namespace TGS.PathFinding {
 					else
 						mNewG = mCalcGrid [mLocation].G + gridValue;
 
+					// turn cost: penalize changing direction vs the move that reached this cell
+					if (mTurnCost > 0) {
+						int pX = mCalcGrid [mLocation].PX;
+						int pY = mCalcGrid [mLocation].PY;
+						if ((pX != mLocationX || pY != mLocationY) &&
+							((mLocationX - pX) != (mNewLocationX - mLocationX) || (mLocationY - pY) != (mNewLocationY - mLocationY)))
+							mNewG += mTurnCost;
+					}
+
 					if (mNewG > mMaxSearchCost || mCalcGrid [mLocation].Steps >= mMaxSteps)
 						continue;
 
@@ -505,7 +533,7 @@ namespace TGS.PathFinding {
 					mCalcGrid [mNewLocation].Steps = mCalcGrid [mLocation].Steps + 1;
 
 					int dist = Math.Abs (mNewLocationX - endCell.column);
-					switch (mFormula) {
+					switch (isHexagonal ? HeuristicFormula.Hexagonal : mFormula) {
 					default:
 					case HeuristicFormula.Manhattan:
 						mH = mHEstimate * (dist + Math.Abs (mNewLocationY - endCell.row));
@@ -516,12 +544,12 @@ namespace TGS.PathFinding {
 					case HeuristicFormula.DiagonalShortCut:
 						float h_diagonal = Math.Min (dist, Math.Abs (mNewLocationY - endCell.row));
 						float h_straight = (dist + Math.Abs (mNewLocationY - endCell.row));
-						mH = (mHEstimate * 2) * h_diagonal + mHEstimate * (h_straight - 2 * h_diagonal);
+						mH = (mHEstimate * mHeavyDiagonalsCost) * h_diagonal + mHEstimate * (h_straight - 2 * h_diagonal);
 						break;
 					case HeuristicFormula.Euclidean:
 						mH = mHEstimate * (float)(Math.Sqrt (Math.Pow (dist, 2) + Math.Pow ((mNewLocationY - endCell.row), 2)));
 						break;
-					case HeuristicFormula.EuclideanNoSQR:
+					case HeuristicFormula.EuclideanSQR:
 						mH = mHEstimate * (float)(Math.Pow (dist, 2) + Math.Pow ((mNewLocationY - endCell.row), 2));
 						break;
 					case HeuristicFormula.Custom1:
@@ -529,6 +557,19 @@ namespace TGS.PathFinding {
 						float Orthogonal = Math.Abs (dxy.x - dxy.y);
 						float Diagonal = Math.Abs (((dxy.x + dxy.y) - Orthogonal) / 2);
 						mH = mHEstimate * (Diagonal + Orthogonal + dxy.x + dxy.y);
+						break;
+					case HeuristicFormula.Hexagonal:
+						int chx, chy;
+						if (mCellShape == CellType.PointyTopHexagon) {
+							chy = mNewLocationY;
+							chx = mNewLocationX - (mNewLocationY + hexOffset) / 2;
+						} else {
+							chy = mNewLocationY - (mNewLocationX + hexOffset) / 2;
+							chx = mNewLocationX;
+						}
+						int hdx = endHexX - chx;
+						int hdy = endHexY - chy;
+						mH = mHEstimate * Math.Max (Math.Abs (hdx), Math.Max (Math.Abs (hdy), Math.Abs (hdx + hdy)));
 						break;
 					}
 					mCalcGrid [mNewLocation].F = mNewG + mH;

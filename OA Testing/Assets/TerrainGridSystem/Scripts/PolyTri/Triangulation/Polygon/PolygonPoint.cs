@@ -34,6 +34,8 @@
 /// Future possibilities
 ///   Documentation!
 
+#pragma warning disable UDR0001
+
 namespace TGS.Poly2Tri {
 	public class PolygonPoint : TriangulationPoint {
 		public static PolygonPoint zero = new PolygonPoint (0, 0);

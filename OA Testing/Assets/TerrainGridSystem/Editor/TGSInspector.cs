@@ -1,3 +1,4 @@
+#pragma warning disable UDR0001
 using UnityEngine;
 using UnityEditor;
 using System.Text;
@@ -403,6 +404,8 @@ namespace TGS_Editor {
 
                     tgs.useStencilBuffer = EditorGUILayout.Toggle(new GUIContent("Use Stencil Buffer", "When enabled, stencil buffer will be used to avoid overdraw and ensure correct rendering order of grid features. You can disable this option if it creates conflicts with other stencil-based renderers."), tgs.useStencilBuffer);
 
+                    tgs.gridLinesIgnoreDepth = EditorGUILayout.Toggle(new GUIContent("Lines Ignore Depth", "Draw cell borders and territory frontiers ignoring the depth buffer so they show through scene geometry. Objects rendered after the grid (transparent objects or later render queues) can still draw over the lines."), tgs.gridLinesIgnoreDepth);
+
                     tgs.canvasTexture = (Texture2D)EditorGUILayout.ObjectField(new GUIContent("Canvas Texture", "Optional texture for background that's revealed when using the texture methods of cells or territories."), tgs.canvasTexture, typeof(Texture2D), true);
 
                     tgs.animationSortingOrder = EditorGUILayout.IntField(new GUIContent("Animation Sorting Order", "Sorting order for animation effects such as fade out grid elements."), tgs.animationSortingOrder);
@@ -698,16 +701,17 @@ namespace TGS_Editor {
             expandPathFinding = DrawSectionTitle("Path Finding", expandPathFinding);
             if (expandPathFinding) {
 
-                tgs.pathFindingHeuristicFormula = (TGS.PathFinding.HeuristicFormula)EditorGUILayout.EnumPopup("Algorithm", tgs.pathFindingHeuristicFormula);
-                tgs.pathFindingMaxCost = EditorGUILayout.FloatField("Max Search Cost", tgs.pathFindingMaxCost);
-                tgs.pathFindingMaxSteps = EditorGUILayout.IntField("Max Steps", tgs.pathFindingMaxSteps);
-                tgs.pathFindingIncludeInvisibleCells = EditorGUILayout.Toggle("Include Invisible Cells", tgs.pathFindingIncludeInvisibleCells);
+                tgs.pathFindingHeuristicFormula = (TGS.PathFinding.HeuristicFormula)EditorGUILayout.EnumPopup(new GUIContent("Algorithm", "Heuristic used to estimate remaining distance (box grids). DiagonalShortCut is admissible and optimal; EuclideanSQR is faster but can produce zig-zag, non-optimal routes. Hexagonal grids always use the exact hexagonal distance regardless of this setting."), tgs.pathFindingHeuristicFormula);
+                tgs.pathFindingMaxCost = EditorGUILayout.FloatField(new GUIContent("Max Search Cost", "Abandons the search if the accumulated path cost exceeds this value (returns no path)."), tgs.pathFindingMaxCost);
+                tgs.pathFindingMaxSteps = EditorGUILayout.IntField(new GUIContent("Max Steps", "Maximum number of cells a path may contain; also bounds how far the search explores."), tgs.pathFindingMaxSteps);
+                tgs.pathFindingIncludeInvisibleCells = EditorGUILayout.Toggle(new GUIContent("Include Invisible Cells", "Allow the path to cross cells marked as not visible (e.g. holes)."), tgs.pathFindingIncludeInvisibleCells);
 
                 if (tgs.gridTopology == GridTopology.Box) {
-                    tgs.pathFindingUseDiagonals = EditorGUILayout.Toggle("Use Diagonals", tgs.pathFindingUseDiagonals);
+                    tgs.pathFindingUseDiagonals = EditorGUILayout.Toggle(new GUIContent("Use Diagonals", "Permit diagonal steps between box cells; each diagonal is weighted by Diagonals Cost."), tgs.pathFindingUseDiagonals);
                     EditorGUI.indentLevel++;
-                    tgs.pathFindingHeavyDiagonalsCost = EditorGUILayout.FloatField("Diagonals Cost", tgs.pathFindingHeavyDiagonalsCost);
+                    tgs.pathFindingHeavyDiagonalsCost = EditorGUILayout.FloatField(new GUIContent("Diagonals Cost", "Cost multiplier for diagonal steps (1.4 ≈ √2). Higher values discourage diagonals."), tgs.pathFindingHeavyDiagonalsCost);
                     EditorGUI.indentLevel--;
+                    tgs.pathFindingTurnCost = EditorGUILayout.FloatField(new GUIContent("Turn Cost", "Extra cost added on each direction change. 0 = off; small values prefer straighter, fewer-turn paths."), tgs.pathFindingTurnCost);
                 }
                 EditorGUILayout.Separator();
             }

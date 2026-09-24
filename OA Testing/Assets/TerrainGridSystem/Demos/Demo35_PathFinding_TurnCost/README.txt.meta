@@ -1,0 +1,13 @@
+fileFormatVersion: 2
+guid: aa310e00d9224b17b52ed2b0e136fa43
+TextScriptImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 244921
+  packageName: Terrain Grid System 2
+  packageVersion: 22.1
+  assetPath: Assets/TerrainGridSystem/Demos/Demo35_PathFinding_TurnCost/README.txt
+  uploadId: 977730

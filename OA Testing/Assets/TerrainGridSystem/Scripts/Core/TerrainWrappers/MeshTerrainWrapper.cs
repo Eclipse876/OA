@@ -1,5 +1,7 @@
 ﻿//#define DEBUG_TEXTURES
 
+#pragma warning disable UDR0001
+
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -131,11 +133,7 @@ namespace TGS {
             rr.Clear();
             terrains = Terrain.activeTerrains;
             if (_searchGlobal) {
-#if UNITY_2023_1_OR_NEWER
-                renderers = Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None);
-#else
-                renderers = Object.FindObjectsOfType<MeshRenderer>();
-#endif
+                renderers = Misc.FindObjectsOfType<MeshRenderer>();
             } else {
                 renderers = gameObject.GetComponentsInChildren<MeshRenderer>();
             }
@@ -273,6 +271,11 @@ namespace TGS {
         public T GetComponent<T>() {
             return gameObject.GetComponent<T>();
         }
+
+        /// <summary>
+        /// Returns true if the heightmap capture has been computed and height queries can be answered
+        /// </summary>
+        public bool heightsReady { get { return heights != null; } }
 
         /// <summary>
         /// Returns the height at a world space position. Height is in local space.

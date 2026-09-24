@@ -1,5 +1,6 @@
 // Comment this line to disable usage of XR module
 #define ENABLE_XR
+#pragma warning disable UDR0001
 
 using System.Collections.Generic;
 using UnityEngine;

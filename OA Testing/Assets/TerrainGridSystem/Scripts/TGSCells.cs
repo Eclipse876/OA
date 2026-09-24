@@ -3,6 +3,7 @@ using System;
 using System.Text;
 using System.Collections.Generic;
 using TGS.Geom;
+using TGS.ClipperLib;
 using System.Globalization;
 
 namespace TGS {
@@ -18,6 +19,101 @@ namespace TGS {
     }
 
     public delegate bool CellFilterDelegate (int cellIndex);
+
+
+    /// <summary>
+    /// Coverage result for a single cell
+    /// </summary>
+    public struct CellCoverage {
+        /// <summary>
+        /// Index of the covered cell
+        /// </summary>
+        public int cellIndex;
+        /// <summary>
+        /// Fraction (0..1) of the cell area covered by the footprint
+        /// </summary>
+        public float coverage;
+    }
+
+    /// <summary>
+    /// Describes how faithful the extracted footprint polygon is to the source object
+    /// </summary>
+    public enum FootprintSource {
+        Exact = 0,
+        ApproximatedHull = 1,
+        BoundsFallback = 2
+    }
+
+    /// <summary>
+    /// Options for CellGetFootprint / CellGetCoverage
+    /// </summary>
+    public struct FootprintOptions {
+        /// <summary>
+        /// Minimum coverage fraction (0..1) for a cell to be included. A value of 0 means any strictly positive intersection area.
+        /// </summary>
+        public float minCoverage;
+        /// <summary>
+        /// If true, hidden cells are excluded from results
+        /// </summary>
+        public bool visibleOnly;
+        /// <summary>
+        /// Number of segments used to approximate spheres/capsules
+        /// </summary>
+        public int circleSegments;
+
+        public static FootprintOptions Default { get { return new FootprintOptions { minCoverage = 0.5f, visibleOnly = false, circleSegments = 16 }; } }
+    }
+
+    /// <summary>
+    /// Terrain measurements under a set of cells or a footprint polygon
+    /// </summary>
+    public struct GroundInfo {
+        /// <summary>
+        /// Minimum sampled terrain height in world space
+        /// </summary>
+        public float minHeight;
+        /// <summary>
+        /// Maximum sampled terrain height in world space
+        /// </summary>
+        public float maxHeight;
+        /// <summary>
+        /// Difference between maximum and minimum sampled heights
+        /// </summary>
+        public float heightDelta;
+        /// <summary>
+        /// Steepest sampled surface angle vs world up, in degrees
+        /// </summary>
+        public float maxSlopeDegrees;
+        /// <summary>
+        /// Average surface normal in world space (normalized)
+        /// </summary>
+        public Vector3 averageNormal;
+        /// <summary>
+        /// Fraction of samples within tolerance below the maximum height (horizontal-base support model: a rigid slab that translates vertically but does not tilt)
+        /// </summary>
+        public float supportFraction;
+    }
+
+    /// <summary>
+    /// Options for CellGetGroundInfo
+    /// </summary>
+    public struct GroundInfoOptions {
+        /// <summary>
+        /// World units tolerance used by supportFraction
+        /// </summary>
+        public float tolerance;
+        /// <summary>
+        /// Interior sample budget scaler per cell (clamped to 1..64)
+        /// </summary>
+        public int samplesPerCell;
+        /// <summary>
+        /// If true, hidden cells are excluded
+        /// </summary>
+        public bool visibleOnly;
+
+        public static GroundInfoOptions Default { get { return new GroundInfoOptions { tolerance = 0.25f, samplesPerCell = 4, visibleOnly = false }; } }
+    }
+
 
     /// <summary>
     /// Data structure containing border cells and border vertices.
@@ -788,7 +884,7 @@ namespace TGS {
         /// <param name="texture">Texture to be used.</param>
         /// <param name="isCanvasTexture">If true, the texture is assumed to fill the entire grid or canvas so only a portion of the texture would be visible in the cell</param>
         public GameObject CellToggleRegionSurface (int cellIndex, bool visible, Texture2D texture, bool isCanvasTexture = false) {
-            return CellToggleRegionSurface(cellIndex, visible, Color.white, false, texture, Misc.Vector2one, Misc.Vector2zero, 0, true, localSpace: false, isCanvasTexture: isCanvasTexture);
+            return CellToggleRegionSurface(cellIndex, visible, Color.white, false, texture, Misc.Vector2one, Misc.Vector2zero, 0, false, localSpace: false, isCanvasTexture: isCanvasTexture);
         }
 
         /// <summary>
@@ -800,7 +896,7 @@ namespace TGS {
         /// <param name="color">Color. Can be partially transparent.</param>
         /// <param name="refreshGeometry">If set to <c>true</c> any cached surface will be destroyed and regenerated. Usually you pass false to improve performance.</param>
         public GameObject CellToggleRegionSurface (int cellIndex, bool visible, Color color, bool refreshGeometry = false) {
-            return CellToggleRegionSurface(cellIndex, visible, color, refreshGeometry, null, Misc.Vector2one, Misc.Vector2zero, 0, true, localSpace: false, isCanvasTexture: false);
+            return CellToggleRegionSurface(cellIndex, visible, color, refreshGeometry, null, Misc.Vector2one, Misc.Vector2zero, 0, false, localSpace: false, isCanvasTexture: false);
         }
 
         /// <summary>
@@ -818,7 +914,7 @@ namespace TGS {
             if (textureIndex >= 0 && textureIndex < textures.Length) {
                 texture = textures[textureIndex];
             }
-            return CellToggleRegionSurface(cellIndex, visible, color, refreshGeometry, texture, Misc.Vector2one, Misc.Vector2zero, 0, true, localSpace: false, isCanvasTexture: isCanvasTexture);
+            return CellToggleRegionSurface(cellIndex, visible, color, refreshGeometry, texture, Misc.Vector2one, Misc.Vector2zero, 0, false, localSpace: false, isCanvasTexture: isCanvasTexture);
         }
 
         /// <summary>
@@ -1966,6 +2062,23 @@ namespace TGS {
             cellIndices.Clear();
             if (maxSteps < 0) maxSteps = _pathFindingMaxSteps;
             maxSteps = Mathf.Min(BIG_INT_NUMBER, maxSteps);
+            if (_gridTopology == GridTopology.Irregular) {
+                List<int> candidates = new List<int>();
+                GetCellsWithinHops(cellIndex, maxSteps, candidates);
+                int candidatesCount = candidates.Count;
+                int found = 0;
+                for (int i = 0; i < candidatesCount; i++) {
+                    int ci = candidates[i];
+                    if (filter != null && !filter(ci)) continue;
+                    int stepsCount = FindPath(cellIndex, ci, tempListCells, out _, maxSearchCost, maxSteps, cellGroupMask, canCrossCheckType, ignoreCellCosts, includeInvisibleCells, cellGroupMaskExactComparison: cellGroupMaskExactComparison);
+                    if (stepsCount > 0) {
+                        cellIndices.Add(ci);
+                        found++;
+                        if (found >= maxResultsCount) break;
+                    }
+                }
+                return found;
+            }
             int maxI = maxSteps * 2 + 1;
             maxI *= maxI;
             maxI--; // ignore starting cell
@@ -2018,6 +2131,34 @@ namespace TGS {
         }
 
 
+        // Irregular topology: BFS over cell adjacency to collect all cells within maxHops steps
+        void GetCellsWithinHops (int cellIndex, int maxHops, List<int> candidates) {
+            candidates.Clear();
+            if (maxHops < 1 || cellIndex < 0 || cellIndex >= cells.Count) return;
+            cellIteration++;
+            cells[cellIndex].iteration = cellIteration;
+            Queue<int> frontier = new Queue<int>();
+            frontier.Enqueue(cellIndex);
+            int depth = 0;
+            while (frontier.Count > 0 && depth < maxHops) {
+                int levelCount = frontier.Count;
+                depth++;
+                for (int i = 0; i < levelCount; i++) {
+                    int ci = frontier.Dequeue();
+                    List<Cell> nbs = cells[ci].neighbours;
+                    if (nbs == null) continue;
+                    int nc = nbs.Count;
+                    for (int k = 0; k < nc; k++) {
+                        Cell nb = nbs[k];
+                        if (nb == null || nb.iteration == cellIteration) continue;
+                        nb.iteration = cellIteration;
+                        candidates.Add(nb.index);
+                        frontier.Enqueue(nb.index);
+                    }
+                }
+            }
+        }
+
         /// <summary>
         /// Get a list of cells which are nearer than a given distance in cell count
         /// </summary>
@@ -2027,6 +2168,21 @@ namespace TGS {
             minSteps = Mathf.Max(1, minSteps);
             Cell cell = cells[cellIndex];
             List<int> cc = new List<int>();
+            if (_gridTopology == GridTopology.Irregular) {
+                List<int> candidates = new List<int>();
+                GetCellsWithinHops(cellIndex, maxSteps, candidates);
+                int candidatesCount = candidates.Count;
+                for (int i = 0; i < candidatesCount; i++) {
+                    int ci = candidates[i];
+                    if (!includeInvisibleCells && !CellIsVisible(ci)) continue;
+                    if (filter != null && !filter(ci)) continue;
+                    List<int> steps = FindPath(cellIndex, ci, maxCost, maxSteps, cellGroupMask, canCrossCheckType, ignoreCellCosts, includeInvisibleCells, cellGroupMaskExactComparison: cellGroupMaskExactComparison);
+                    if (steps != null && steps.Count >= minSteps) {
+                        cc.Add(ci);
+                    }
+                }
+                return cc;
+            }
             GridDistanceFunction distanceFunction;
             if (_gridTopology == GridTopology.Hexagonal) {
                 distanceFunction = CellGetHexagonDistance;
@@ -2893,7 +3049,7 @@ namespace TGS {
             if (cells == null || cells.Count == 0)
                 return;
             foreach (Cell cell in cells) {
-                if (cell.visible == visible)
+                if (cell == null || cell.visible == visible)
                     continue; // nothing to do
 
                 cell.visible = visible;
@@ -2905,7 +3061,7 @@ namespace TGS {
             refreshCellMesh = true;
             if (excludeFromAnyTerritory) {
                 foreach (Cell cell in cells) {
-                    if (cell.territoryIndex >= 0) {
+                    if (cell != null && cell.territoryIndex >= 0) {
                         cell.territoryIndex = -1;
                     }
                 }
@@ -3188,7 +3344,7 @@ namespace TGS {
             for (int k = 0; k < pointCount; k++) {
                 Vector3 point = projectedPositions[k];
                 Cell cell = GetCellAtPoint(point, true);
-                if (cell.iteration != cellIteration) {
+                if (cell != null && cell.iteration != cellIteration) {
                     cell.iteration = cellIteration;
                     cellIndices.Add(cell.index);
                 }
@@ -3310,6 +3466,22 @@ namespace TGS {
             float vdot = Vector2.Dot(v, v);
             Vector2 vnorm = v.normalized;
             float maxCos = Mathf.Cos(angle * 0.5f * Mathf.Deg2Rad);
+
+            if (_gridTopology == GridTopology.Irregular) {
+                int cellsCount = cells.Count;
+                for (int k = 0; k < cellsCount; k++) {
+                    Cell candidate = cells[k];
+                    if (candidate == null) continue;
+                    Vector2 candW = (Vector2)candidate.center - startPos;
+                    float candT = Vector2.Dot(candW, v) / vdot;
+                    if (candT > 1) continue;
+                    float candCos = Vector2.Dot(candW.normalized, vnorm);
+                    if (candCos >= maxCos) {
+                        cellIndices.Add(k);
+                    }
+                }
+                return cellIndices.Count;
+            }
 
             int distX = Mathf.Abs(cells[targetCellIndex].column - cells[cellIndex].column);
             int distY = Mathf.Abs(cells[targetCellIndex].row - cells[cellIndex].row);
@@ -4445,6 +4617,767 @@ namespace TGS {
 
 
 
+
+
+        const double COVERAGE_MULTIPLIER = 5000000;
+        const float MIN_POSITIVE_AREA = 1e-10f;
+        const int MAX_FOOTPRINT_VERTICES = 65536;
+
+        internal int cellsGeometryVersion = 1;
+
+        static readonly List<List<Vector2>> tempFootprintPolys = new List<List<Vector2>>();
+        static readonly List<Vector2> tempExtractPoints = new List<Vector2>();
+        static readonly List<Vector2> tempHull = new List<Vector2>();
+        static readonly List<Vector2> tempClipA = new List<Vector2>();
+        static readonly List<Vector2> tempClipB = new List<Vector2>();
+        static readonly List<List<IntPoint>> tempClipperSolution = new List<List<IntPoint>>();
+        static readonly List<IntPoint> tempIntPath = new List<IntPoint>();
+        static readonly List<List<Vector2>> tempIntersections = new List<List<Vector2>>();
+        static readonly List<float> tempSampleHeights = new List<float>();
+        static readonly List<int> tempDedupCells = new List<int>();
+        static readonly HashSet<int> tempCellSet = new HashSet<int>();
+
+        #region Public coverage API
+
+        /// <summary>
+        /// Returns the cells covered by the footprint of a gameobject (union of its enabled non-trigger colliders, or its renderers if it has no colliders) with per-cell coverage fraction
+        /// </summary>
+        public int CellGetFootprint (GameObject go, List<CellCoverage> results, out FootprintSource source) {
+            return CellGetFootprint(go, results, FootprintOptions.Default, out source);
+        }
+
+        /// <summary>
+        /// Returns the cells covered by the footprint of a gameobject (union of its enabled non-trigger colliders, or its renderers if it has no colliders) with per-cell coverage fraction
+        /// </summary>
+        public int CellGetFootprint (GameObject go, List<CellCoverage> results, FootprintOptions options, out FootprintSource source) {
+            source = FootprintSource.BoundsFallback;
+            if (go == null || !ValidateCoverageArgs(results, ref options)) return 0;
+            ClearFootprintPolys();
+            source = ExtractGameObjectFootprint(go, options.circleSegments);
+            return ComputeCoverage(tempFootprintPolys, results, options, null);
+        }
+
+        /// <summary>
+        /// Returns the cells covered by the footprint of a collider with per-cell coverage fraction
+        /// </summary>
+        public int CellGetFootprint (Collider collider, List<CellCoverage> results, out FootprintSource source) {
+            return CellGetFootprint(collider, results, FootprintOptions.Default, out source);
+        }
+
+        /// <summary>
+        /// Returns the cells covered by the footprint of a collider with per-cell coverage fraction
+        /// </summary>
+        public int CellGetFootprint (Collider collider, List<CellCoverage> results, FootprintOptions options, out FootprintSource source) {
+            source = FootprintSource.BoundsFallback;
+            if (collider == null || !ValidateCoverageArgs(results, ref options)) return 0;
+            ClearFootprintPolys();
+            source = ExtractColliderFootprint(collider, options.circleSegments);
+            return ComputeCoverage(tempFootprintPolys, results, options, null);
+        }
+
+        /// <summary>
+        /// Returns the cells covered by the footprint of a renderer with per-cell coverage fraction
+        /// </summary>
+        public int CellGetFootprint (Renderer renderer, List<CellCoverage> results, out FootprintSource source) {
+            return CellGetFootprint(renderer, results, FootprintOptions.Default, out source);
+        }
+
+        /// <summary>
+        /// Returns the cells covered by the footprint of a renderer with per-cell coverage fraction
+        /// </summary>
+        public int CellGetFootprint (Renderer renderer, List<CellCoverage> results, FootprintOptions options, out FootprintSource source) {
+            source = FootprintSource.BoundsFallback;
+            if (renderer == null || !ValidateCoverageArgs(results, ref options)) return 0;
+            ClearFootprintPolys();
+            source = ExtractRendererFootprint(renderer);
+            return ComputeCoverage(tempFootprintPolys, results, options, null);
+        }
+
+        /// <summary>
+        /// Returns the cells covered by a simple polygon expressed in grid local space, with per-cell coverage fraction. The polygon must not self-intersect and cannot contain holes.
+        /// </summary>
+        public int CellGetCoverage (IList<Vector2> localPolygon, List<CellCoverage> results) {
+            return CellGetCoverage(localPolygon, results, FootprintOptions.Default);
+        }
+
+        /// <summary>
+        /// Returns the cells covered by a simple polygon expressed in grid local space, with per-cell coverage fraction. The polygon must not self-intersect and cannot contain holes.
+        /// </summary>
+        public int CellGetCoverage (IList<Vector2> localPolygon, List<CellCoverage> results, FootprintOptions options) {
+            if (!ValidateCoverageArgs(results, ref options)) return 0;
+            ClearFootprintPolys();
+            List<Vector2> poly = GetPooledPoly(0);
+            if (!CanonicalizePolygon(localPolygon, poly)) {
+                Debug.LogError("CellGetCoverage: invalid polygon (needs 3+ distinct finite points, non-zero area, no self-intersections).");
+                return 0;
+            }
+            return ComputeCoverage(tempFootprintPolys, results, options, null);
+        }
+
+        #endregion
+
+
+        #region Public ground info API
+
+        /// <summary>
+        /// Returns terrain measurements under a set of cells (whole cell areas are sampled)
+        /// </summary>
+        public bool CellGetGroundInfo (IList<int> cellIndices, ref GroundInfo info) {
+            return CellGetGroundInfo(cellIndices, ref info, GroundInfoOptions.Default);
+        }
+
+        /// <summary>
+        /// Returns terrain measurements under a set of cells (whole cell areas are sampled)
+        /// </summary>
+        public bool CellGetGroundInfo (IList<int> cellIndices, ref GroundInfo info, GroundInfoOptions options) {
+            info = default;
+            if (!ValidateGroundArgs(ref options)) return false;
+            if (cellIndices == null || cellIndices.Count == 0) return false;
+
+            tempDedupCells.Clear();
+            tempCellSet.Clear();
+            int count = cellIndices.Count;
+            for (int k = 0; k < count; k++) {
+                int cellIndex = cellIndices[k];
+                if (cellIndex < 0 || cells == null || cellIndex >= cells.Count) continue;
+                Cell cell = cells[cellIndex];
+                if (cell == null) continue;
+                if (options.visibleOnly && !cell.visible) continue;
+                if (tempCellSet.Add(cellIndex)) {
+                    tempDedupCells.Add(cellIndex);
+                }
+            }
+            if (tempDedupCells.Count == 0) return false;
+
+            tempIntersections.Clear();
+            for (int k = 0; k < tempDedupCells.Count; k++) {
+                tempIntersections.Add(cells[tempDedupCells[k]].region.points);
+            }
+            return SampleGroundInfo(tempIntersections, ref info, options);
+        }
+
+        /// <summary>
+        /// Returns terrain measurements sampled only inside the intersection of a footprint polygon (grid local space) with the grid cells
+        /// </summary>
+        public bool CellGetGroundInfo (IList<Vector2> localFootprintPolygon, ref GroundInfo info) {
+            return CellGetGroundInfo(localFootprintPolygon, ref info, GroundInfoOptions.Default);
+        }
+
+        /// <summary>
+        /// Returns terrain measurements sampled only inside the intersection of a footprint polygon (grid local space) with the grid cells
+        /// </summary>
+        public bool CellGetGroundInfo (IList<Vector2> localFootprintPolygon, ref GroundInfo info, GroundInfoOptions options) {
+            info = default;
+            if (!ValidateGroundArgs(ref options)) return false;
+
+            ClearFootprintPolys();
+            List<Vector2> poly = GetPooledPoly(0);
+            if (!CanonicalizePolygon(localFootprintPolygon, poly)) return false;
+
+            FootprintOptions fpOptions = FootprintOptions.Default;
+            fpOptions.minCoverage = 0;
+            fpOptions.visibleOnly = options.visibleOnly;
+            tempIntersections.Clear();
+            List<CellCoverage> coverageResults = new List<CellCoverage>();
+            int covered = ComputeCoverage(tempFootprintPolys, coverageResults, fpOptions, tempIntersections);
+            if (covered == 0 || tempIntersections.Count == 0) return false;
+            return SampleGroundInfo(tempIntersections, ref info, options);
+        }
+
+        #endregion
+
+
+        #region Coverage internals
+
+        bool ValidateCoverageArgs (List<CellCoverage> results, ref FootprintOptions options) {
+            if (results == null) {
+                Debug.LogError("Coverage query: results list must be initialized.");
+                return false;
+            }
+            results.Clear();
+            if (float.IsNaN(options.minCoverage)) {
+                Debug.LogError("Coverage query: minCoverage is NaN.");
+                return false;
+            }
+            options.minCoverage = Mathf.Clamp01(options.minCoverage);
+            if (options.circleSegments <= 2) options.circleSegments = 16;
+            return cells != null;
+        }
+
+        void ClearFootprintPolys () {
+            tempFootprintPolys.Clear();
+        }
+
+        List<Vector2> GetPooledPoly (int index) {
+            while (tempFootprintPolys.Count <= index) {
+                tempFootprintPolys.Add(new List<Vector2>());
+            }
+            List<Vector2> poly = tempFootprintPolys[index];
+            poly.Clear();
+            return poly;
+        }
+
+        static float SignedArea (List<Vector2> poly) {
+            float area = 0;
+            int count = poly.Count;
+            for (int k = 0; k < count; k++) {
+                Vector2 p = poly[k];
+                Vector2 q = poly[(k + 1) % count];
+                area += p.x * q.y - q.x * p.y;
+            }
+            return area * 0.5f;
+        }
+
+        static bool SegmentsIntersect (Vector2 a, Vector2 b, Vector2 c, Vector2 d) {
+            float d1 = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+            float d2 = (b.x - a.x) * (d.y - a.y) - (b.y - a.y) * (d.x - a.x);
+            float d3 = (d.x - c.x) * (a.y - c.y) - (d.y - c.y) * (a.x - c.x);
+            float d4 = (d.x - c.x) * (b.y - c.y) - (d.y - c.y) * (b.x - c.x);
+            return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+        }
+
+        // Cleans input into a CCW simple polygon without duplicate closing vertex; returns false if invalid
+        static bool CanonicalizePolygon (IList<Vector2> input, List<Vector2> output) {
+            output.Clear();
+            if (input == null) return false;
+            int count = input.Count;
+            for (int k = 0; k < count; k++) {
+                Vector2 p = input[k];
+                if (float.IsNaN(p.x) || float.IsNaN(p.y) || float.IsInfinity(p.x) || float.IsInfinity(p.y)) return false;
+                if (output.Count > 0) {
+                    Vector2 prev = output[output.Count - 1];
+                    if (Mathf.Abs(prev.x - p.x) < 1e-9f && Mathf.Abs(prev.y - p.y) < 1e-9f) continue;
+                }
+                output.Add(p);
+            }
+            if (output.Count > 1) {
+                Vector2 first = output[0];
+                Vector2 last = output[output.Count - 1];
+                if (Mathf.Abs(first.x - last.x) < 1e-9f && Mathf.Abs(first.y - last.y) < 1e-9f) {
+                    output.RemoveAt(output.Count - 1);
+                }
+            }
+            if (output.Count < 3) return false;
+            float area = SignedArea(output);
+            if (Mathf.Abs(area) < MIN_POSITIVE_AREA) return false;
+            if (area < 0) output.Reverse();
+            int n = output.Count;
+            for (int i = 0; i < n; i++) {
+                Vector2 a = output[i];
+                Vector2 b = output[(i + 1) % n];
+                for (int j = i + 1; j < n; j++) {
+                    if (j == i || (j + 1) % n == i || (i + 1) % n == j) continue;
+                    Vector2 c = output[j];
+                    Vector2 d = output[(j + 1) % n];
+                    if (SegmentsIntersect(a, b, c, d)) return false;
+                }
+            }
+            return true;
+        }
+
+        static bool IsConvex (List<Vector2> poly) {
+            int count = poly.Count;
+            if (count < 4) return true;
+            float maxExtent = 0;
+            for (int k = 0; k < count; k++) {
+                maxExtent = Mathf.Max(maxExtent, Mathf.Abs(poly[k].x), Mathf.Abs(poly[k].y));
+            }
+            float eps = 1e-10f * maxExtent * maxExtent + 1e-14f;
+            bool hasPositive = false, hasNegative = false;
+            for (int k = 0; k < count; k++) {
+                Vector2 a = poly[k];
+                Vector2 b = poly[(k + 1) % count];
+                Vector2 c = poly[(k + 2) % count];
+                float cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+                if (cross > eps) hasPositive = true;
+                else if (cross < -eps) hasNegative = true;
+                if (hasPositive && hasNegative) return false;
+            }
+            return true;
+        }
+
+        void RefreshCellGeometryCache (Region region) {
+            if (region.cachedGeomVersion == cellsGeometryVersion) return;
+            float area = 0;
+            if (region.points != null && region.points.Count >= 3) {
+                area = Mathf.Abs(SignedArea(region.points));
+                region.cachedIsConvex = IsConvex(region.points);
+            }
+            else {
+                region.cachedIsConvex = false;
+            }
+            region.cachedPolyArea = area;
+            region.cachedGeomVersion = cellsGeometryVersion;
+        }
+
+        int ComputeCoverage (List<List<Vector2>> footprintPolys, List<CellCoverage> results, FootprintOptions options, List<List<Vector2>> outIntersections) {
+            int polyCount = footprintPolys.Count;
+            if (polyCount == 0) return 0;
+
+            float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+            bool anyValid = false;
+            for (int p = 0; p < polyCount; p++) {
+                List<Vector2> poly = footprintPolys[p];
+                if (poly.Count < 3) continue;
+                anyValid = true;
+                for (int k = 0; k < poly.Count; k++) {
+                    Vector2 pt = poly[k];
+                    if (pt.x < minX) minX = pt.x;
+                    if (pt.x > maxX) maxX = pt.x;
+                    if (pt.y < minY) minY = pt.y;
+                    if (pt.y > maxY) maxY = pt.y;
+                }
+            }
+            if (!anyValid) return 0;
+
+            bool singleConvexFootprint = polyCount == 1 && IsConvex(footprintPolys[0]);
+            int cellCount = cells.Count;
+            for (int k = 0; k < cellCount; k++) {
+                Cell cell = cells[k];
+                if (cell == null || cell.region == null || cell.region.points == null || cell.region.points.Count < 3) continue;
+                if (options.visibleOnly && !cell.visible) continue;
+                Rect rect = cell.region.rect2D;
+                if (rect.xMin > maxX || rect.xMax < minX || rect.yMin > maxY || rect.yMax < minY) continue;
+
+                RefreshCellGeometryCache(cell.region);
+                float cellArea = cell.region.cachedPolyArea;
+                if (cellArea < MIN_POSITIVE_AREA) continue;
+
+                float interArea;
+                int intersectionsBefore = outIntersections != null ? outIntersections.Count : 0;
+                if (singleConvexFootprint && cell.region.cachedIsConvex && outIntersections == null) {
+                    interArea = ConvexClipArea(footprintPolys[0], cell.region.points);
+                }
+                else {
+                    interArea = ClipperIntersectionArea(footprintPolys, cell.region.points, outIntersections);
+                }
+                if (interArea <= MIN_POSITIVE_AREA) {
+                    if (outIntersections != null && outIntersections.Count > intersectionsBefore) {
+                        outIntersections.RemoveRange(intersectionsBefore, outIntersections.Count - intersectionsBefore);
+                    }
+                    continue;
+                }
+
+                float coverage = interArea / cellArea;
+                if (coverage > 1f) coverage = 1f;
+                if (options.minCoverage > 0 && coverage < options.minCoverage) {
+                    if (outIntersections != null && outIntersections.Count > intersectionsBefore) {
+                        outIntersections.RemoveRange(intersectionsBefore, outIntersections.Count - intersectionsBefore);
+                    }
+                    continue;
+                }
+
+                results.Add(new CellCoverage { cellIndex = k, coverage = coverage });
+            }
+            results.Sort(coverageComparison);
+            return results.Count;
+        }
+
+        static readonly List<Vector2> tempClipC = new List<Vector2>();
+        static readonly Comparison<CellCoverage> coverageComparison = (x, y) => x.cellIndex.CompareTo(y.cellIndex);
+        static readonly Comparison<Vector2> pointComparison = (a, b) => a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y);
+
+        // Sutherland-Hodgman clipping of two convex polygons; returns intersection area
+        static float ConvexClipArea (List<Vector2> subject, List<Vector2> clip) {
+            tempClipA.Clear();
+            tempClipA.AddRange(subject);
+            if (SignedArea(tempClipA) < 0) tempClipA.Reverse();
+            tempClipC.Clear();
+            tempClipC.AddRange(clip);
+            if (SignedArea(tempClipC) < 0) tempClipC.Reverse();
+
+            List<Vector2> input = tempClipA;
+            List<Vector2> output = tempClipB;
+            int clipCount = tempClipC.Count;
+            for (int e = 0; e < clipCount; e++) {
+                Vector2 a = tempClipC[e];
+                Vector2 b = tempClipC[(e + 1) % clipCount];
+                output.Clear();
+                int inputCount = input.Count;
+                if (inputCount == 0) break;
+                Vector2 prev = input[inputCount - 1];
+                float prevSide = (b.x - a.x) * (prev.y - a.y) - (b.y - a.y) * (prev.x - a.x);
+                for (int i = 0; i < inputCount; i++) {
+                    Vector2 curr = input[i];
+                    float currSide = (b.x - a.x) * (curr.y - a.y) - (b.y - a.y) * (curr.x - a.x);
+                    if (currSide >= 0) {
+                        if (prevSide < 0) {
+                            output.Add(EdgeIntersection(prev, curr, a, b));
+                        }
+                        output.Add(curr);
+                    }
+                    else if (prevSide >= 0) {
+                        output.Add(EdgeIntersection(prev, curr, a, b));
+                    }
+                    prev = curr;
+                    prevSide = currSide;
+                }
+                List<Vector2> swap = input;
+                input = output;
+                output = swap;
+            }
+            if (input.Count < 3) return 0;
+            return Mathf.Abs(SignedArea(input));
+        }
+
+        static Vector2 EdgeIntersection (Vector2 p, Vector2 q, Vector2 a, Vector2 b) {
+            float a1 = b.y - a.y;
+            float b1 = a.x - b.x;
+            float c1 = a1 * a.x + b1 * a.y;
+            float a2 = q.y - p.y;
+            float b2 = p.x - q.x;
+            float c2 = a2 * p.x + b2 * p.y;
+            float det = a1 * b2 - a2 * b1;
+            if (Mathf.Abs(det) < 1e-20f) return p;
+            return new Vector2((b2 * c1 - b1 * c2) / det, (a1 * c2 - a2 * c1) / det);
+        }
+
+        static void ToIntPath (List<Vector2> poly, List<IntPoint> path) {
+            path.Clear();
+            int count = poly.Count;
+            for (int k = 0; k < count; k++) {
+                long ix = (long)Math.Round(poly[k].x * COVERAGE_MULTIPLIER);
+                long iy = (long)Math.Round(poly[k].y * COVERAGE_MULTIPLIER);
+                path.Add(new IntPoint(ix, iy));
+            }
+        }
+
+        // Intersection area of the union of footprint polygons with a cell polygon, summing all output contours
+        static float ClipperIntersectionArea (List<List<Vector2>> footprintPolys, List<Vector2> cellPoints, List<List<Vector2>> outIntersections) {
+            Clipper clipper = new Clipper();
+            int polyCount = footprintPolys.Count;
+            for (int p = 0; p < polyCount; p++) {
+                List<Vector2> poly = footprintPolys[p];
+                if (poly.Count < 3) continue;
+                ToIntPath(poly, tempIntPath);
+                clipper.AddPath(tempIntPath, PolyType.ptSubject, true);
+            }
+            ToIntPath(cellPoints, tempIntPath);
+            clipper.AddPath(tempIntPath, PolyType.ptClip, true);
+            tempClipperSolution.Clear();
+            clipper.Execute(ClipType.ctIntersection, tempClipperSolution, PolyFillType.pftNonZero, PolyFillType.pftNonZero);
+            double area = 0;
+            int contourCount = tempClipperSolution.Count;
+            for (int c = 0; c < contourCount; c++) {
+                area += Math.Abs(Clipper.Area(tempClipperSolution[c]));
+                if (outIntersections != null) {
+                    List<IntPoint> contour = tempClipperSolution[c];
+                    if (contour.Count >= 3) {
+                        List<Vector2> interPoly = new List<Vector2>(contour.Count);
+                        for (int k = 0; k < contour.Count; k++) {
+                            interPoly.Add(new Vector2((float)(contour[k].X / COVERAGE_MULTIPLIER), (float)(contour[k].Y / COVERAGE_MULTIPLIER)));
+                        }
+                        outIntersections.Add(interPoly);
+                    }
+                }
+            }
+            return (float)(area / (COVERAGE_MULTIPLIER * COVERAGE_MULTIPLIER));
+        }
+
+        #endregion
+
+
+        #region Footprint extraction
+
+        Vector2 ProjectToLocal (Vector3 worldPoint) {
+            Vector3 local = transform.InverseTransformPoint(worldPoint);
+            return new Vector2(local.x, local.y);
+        }
+
+        static void ConvexHull (List<Vector2> points, List<Vector2> hull) {
+            hull.Clear();
+            int count = points.Count;
+            if (count < 3) return;
+            points.Sort(pointComparison);
+            for (int k = 0; k < count; k++) {
+                Vector2 p = points[k];
+                while (hull.Count >= 2 && Cross(hull[hull.Count - 2], hull[hull.Count - 1], p) <= 0) {
+                    hull.RemoveAt(hull.Count - 1);
+                }
+                hull.Add(p);
+            }
+            int lowerCount = hull.Count + 1;
+            for (int k = count - 2; k >= 0; k--) {
+                Vector2 p = points[k];
+                while (hull.Count >= lowerCount && Cross(hull[hull.Count - 2], hull[hull.Count - 1], p) <= 0) {
+                    hull.RemoveAt(hull.Count - 1);
+                }
+                hull.Add(p);
+            }
+            if (hull.Count > 0) hull.RemoveAt(hull.Count - 1);
+        }
+
+        static float Cross (Vector2 o, Vector2 a, Vector2 b) {
+            return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+        }
+
+        FootprintSource ExtractGameObjectFootprint (GameObject go, int circleSegments) {
+            FootprintSource worst = FootprintSource.Exact;
+            bool any = false;
+            Collider[] colliders = go.GetComponentsInChildren<Collider>();
+            for (int k = 0; k < colliders.Length; k++) {
+                Collider col = colliders[k];
+                if (col == null || !col.enabled || col.isTrigger) continue;
+                FootprintSource s = ExtractColliderFootprint(col, circleSegments, tempFootprintPolys.Count);
+                if (s > worst) worst = s;
+                any = true;
+            }
+            if (any) return worst;
+
+            Renderer[] renderers = go.GetComponentsInChildren<Renderer>();
+            LODGroup[] lodGroups = go.GetComponentsInChildren<LODGroup>();
+            HashSet<Renderer> excluded = null;
+            if (lodGroups.Length > 0) {
+                excluded = new HashSet<Renderer>();
+                HashSet<Renderer> lod0 = new HashSet<Renderer>();
+                for (int g = 0; g < lodGroups.Length; g++) {
+                    LOD[] lods = lodGroups[g].GetLODs();
+                    for (int l = 0; l < lods.Length; l++) {
+                        Renderer[] lodRenderers = lods[l].renderers;
+                        for (int r = 0; r < lodRenderers.Length; r++) {
+                            if (lodRenderers[r] == null) continue;
+                            if (l == 0) lod0.Add(lodRenderers[r]);
+                            else excluded.Add(lodRenderers[r]);
+                        }
+                    }
+                }
+                excluded.ExceptWith(lod0);
+            }
+            for (int k = 0; k < renderers.Length; k++) {
+                Renderer rend = renderers[k];
+                if (rend == null || !rend.enabled) continue;
+                if (excluded != null && excluded.Contains(rend)) continue;
+                FootprintSource s = ExtractRendererFootprint(rend, tempFootprintPolys.Count);
+                if (s > worst) worst = s;
+                any = true;
+            }
+            return any ? worst : FootprintSource.BoundsFallback;
+        }
+
+        FootprintSource ExtractColliderFootprint (Collider collider, int circleSegments, int polyIndex = 0) {
+            tempExtractPoints.Clear();
+            if (collider is BoxCollider box) {
+                Vector3 c = box.center;
+                Vector3 h = box.size * 0.5f;
+                for (int sx = -1; sx <= 1; sx += 2)
+                    for (int sy = -1; sy <= 1; sy += 2)
+                        for (int sz = -1; sz <= 1; sz += 2)
+                            tempExtractPoints.Add(ProjectToLocal(box.transform.TransformPoint(c + new Vector3(h.x * sx, h.y * sy, h.z * sz))));
+                BuildHullPoly(polyIndex);
+                return FootprintSource.Exact;
+            }
+            if (collider is SphereCollider sphere) {
+                AddRingSamples(sphere.transform, sphere.center, sphere.radius, circleSegments);
+                BuildHullPoly(polyIndex);
+                return FootprintSource.ApproximatedHull;
+            }
+            if (collider is CapsuleCollider capsule) {
+                Vector3 axis = capsule.direction == 0 ? Vector3.right : capsule.direction == 1 ? Vector3.up : Vector3.forward;
+                float half = Mathf.Max(0, capsule.height * 0.5f - capsule.radius);
+                AddRingSamples(capsule.transform, capsule.center + axis * half, capsule.radius, circleSegments);
+                AddRingSamples(capsule.transform, capsule.center - axis * half, capsule.radius, circleSegments);
+                BuildHullPoly(polyIndex);
+                return FootprintSource.ApproximatedHull;
+            }
+            if (collider is MeshCollider meshCollider && meshCollider.sharedMesh != null && meshCollider.sharedMesh.vertexCount <= MAX_FOOTPRINT_VERTICES) {
+                Vector3[] vertices = meshCollider.sharedMesh.vertices;
+                for (int k = 0; k < vertices.Length; k++) {
+                    tempExtractPoints.Add(ProjectToLocal(meshCollider.transform.TransformPoint(vertices[k])));
+                }
+                BuildHullPoly(polyIndex);
+                return FootprintSource.ApproximatedHull;
+            }
+            AddBoundsCorners(collider.bounds);
+            BuildHullPoly(polyIndex);
+            return FootprintSource.BoundsFallback;
+        }
+
+        FootprintSource ExtractRendererFootprint (Renderer renderer, int polyIndex = 0) {
+            tempExtractPoints.Clear();
+            Mesh mesh = null;
+            bool temporary = false;
+            if (renderer is SkinnedMeshRenderer skinned) {
+                mesh = new Mesh();
+                skinned.BakeMesh(mesh);
+                temporary = true;
+            }
+            else {
+                MeshFilter filter = renderer.GetComponent<MeshFilter>();
+                if (filter != null) mesh = filter.sharedMesh;
+            }
+            if (mesh != null && mesh.vertexCount > 0 && mesh.vertexCount <= MAX_FOOTPRINT_VERTICES) {
+                Vector3[] vertices = mesh.vertices;
+                for (int k = 0; k < vertices.Length; k++) {
+                    tempExtractPoints.Add(ProjectToLocal(renderer.transform.TransformPoint(vertices[k])));
+                }
+                if (temporary) DestroyImmediate(mesh);
+                BuildHullPoly(polyIndex);
+                return FootprintSource.ApproximatedHull;
+            }
+            if (temporary && mesh != null) DestroyImmediate(mesh);
+            AddBoundsCorners(renderer.bounds);
+            BuildHullPoly(polyIndex);
+            return FootprintSource.BoundsFallback;
+        }
+
+        void AddRingSamples (Transform t, Vector3 localCenter, float radius, int segments) {
+            for (int plane = 0; plane < 3; plane++) {
+                for (int s = 0; s < segments; s++) {
+                    float angle = s * Mathf.PI * 2f / segments;
+                    float cos = Mathf.Cos(angle) * radius;
+                    float sin = Mathf.Sin(angle) * radius;
+                    Vector3 offset = plane == 0 ? new Vector3(cos, sin, 0) : plane == 1 ? new Vector3(cos, 0, sin) : new Vector3(0, cos, sin);
+                    tempExtractPoints.Add(ProjectToLocal(t.TransformPoint(localCenter + offset)));
+                }
+            }
+        }
+
+        void AddBoundsCorners (Bounds bounds) {
+            Vector3 min = bounds.min;
+            Vector3 max = bounds.max;
+            for (int sx = 0; sx <= 1; sx++)
+                for (int sy = 0; sy <= 1; sy++)
+                    for (int sz = 0; sz <= 1; sz++)
+                        tempExtractPoints.Add(ProjectToLocal(new Vector3(sx == 0 ? min.x : max.x, sy == 0 ? min.y : max.y, sz == 0 ? min.z : max.z)));
+        }
+
+        void BuildHullPoly (int polyIndex) {
+            ConvexHull(tempExtractPoints, tempHull);
+            List<Vector2> poly = GetPooledPoly(polyIndex);
+            poly.AddRange(tempHull);
+        }
+
+        #endregion
+
+
+        #region Ground info internals
+
+        bool ValidateGroundArgs (ref GroundInfoOptions options) {
+            if (float.IsNaN(options.tolerance) || options.tolerance < 0) return false;
+            options.samplesPerCell = Mathf.Clamp(options.samplesPerCell <= 0 ? 4 : options.samplesPerCell, 1, 64);
+            if (_terrainWrapper == null) return false;
+            if (_terrainWrapper is MeshTerrainWrapper meshWrapper && !meshWrapper.heightsReady) return false;
+            return true;
+        }
+
+        bool SampleGroundInfo (List<List<Vector2>> polygons, ref GroundInfo info, GroundInfoOptions options) {
+            int polyCount = polygons.Count;
+            if (polyCount == 0) return false;
+
+            float totalArea = 0;
+            float globalMinX = float.MaxValue, globalMinY = float.MaxValue;
+            for (int p = 0; p < polyCount; p++) {
+                List<Vector2> poly = polygons[p];
+                if (poly == null || poly.Count < 3) continue;
+                totalArea += Mathf.Abs(SignedArea(poly));
+                for (int k = 0; k < poly.Count; k++) {
+                    if (poly[k].x < globalMinX) globalMinX = poly[k].x;
+                    if (poly[k].y < globalMinY) globalMinY = poly[k].y;
+                }
+            }
+            if (totalArea < MIN_POSITIVE_AREA) return false;
+
+            int totalSamples = Mathf.Clamp(options.samplesPerCell * polyCount, 1, 4096);
+            float spacing = Mathf.Max(Mathf.Sqrt(totalArea / totalSamples), 1e-4f);
+
+            tempSampleHeights.Clear();
+            float minHeight = float.MaxValue, maxHeight = float.MinValue, maxSlope = 0;
+            Vector3 normalSum = Vector3.zero;
+
+            for (int p = 0; p < polyCount; p++) {
+                List<Vector2> poly = polygons[p];
+                if (poly == null || poly.Count < 3) continue;
+                float pMinX = float.MaxValue, pMinY = float.MaxValue, pMaxX = float.MinValue, pMaxY = float.MinValue;
+                for (int k = 0; k < poly.Count; k++) {
+                    Vector2 pt = poly[k];
+                    if (pt.x < pMinX) pMinX = pt.x;
+                    if (pt.x > pMaxX) pMaxX = pt.x;
+                    if (pt.y < pMinY) pMinY = pt.y;
+                    if (pt.y > pMaxY) pMaxY = pt.y;
+                }
+                int startI = Mathf.CeilToInt((pMinX - globalMinX) / spacing);
+                int startJ = Mathf.CeilToInt((pMinY - globalMinY) / spacing);
+                bool sampled = false;
+                for (int i = startI; globalMinX + i * spacing <= pMaxX; i++) {
+                    float x = globalMinX + i * spacing;
+                    for (int j = startJ; globalMinY + j * spacing <= pMaxY; j++) {
+                        float y = globalMinY + j * spacing;
+                        if (!PointInPoly(poly, x, y)) continue;
+                        SampleGroundPoint(x, y, ref minHeight, ref maxHeight, ref maxSlope, ref normalSum);
+                        sampled = true;
+                    }
+                }
+                if (!sampled) {
+                    Vector2 centroid = PolyCentroid(poly);
+                    SampleGroundPoint(centroid.x, centroid.y, ref minHeight, ref maxHeight, ref maxSlope, ref normalSum);
+                }
+            }
+
+            int sampleCount = tempSampleHeights.Count;
+            if (sampleCount == 0) return false;
+
+            int supported = 0;
+            float supportThreshold = maxHeight - options.tolerance;
+            for (int k = 0; k < sampleCount; k++) {
+                if (tempSampleHeights[k] >= supportThreshold) supported++;
+            }
+
+            info.minHeight = minHeight;
+            info.maxHeight = maxHeight;
+            info.heightDelta = maxHeight - minHeight;
+            info.maxSlopeDegrees = maxSlope;
+            info.averageNormal = normalSum.sqrMagnitude > 0 ? normalSum.normalized : Vector3.up;
+            info.supportFraction = (float)supported / sampleCount;
+            return true;
+        }
+
+        void SampleGroundPoint (float x, float y, ref float minHeight, ref float maxHeight, ref float maxSlope, ref Vector3 normalSum) {
+            Vector3 worldPos = GetWorldSpacePosition(new Vector2(x, y));
+            float h = worldPos.y;
+            if (h < minHeight) minHeight = h;
+            if (h > maxHeight) maxHeight = h;
+            tempSampleHeights.Add(h);
+            Vector3 normal = _terrainWrapper.GetInterpolatedNormal(Mathf.Clamp01(x + 0.5f), Mathf.Clamp01(y + 0.5f));
+            if (normal.sqrMagnitude > 0) {
+                normal.Normalize();
+                float slope = Vector3.Angle(normal, Vector3.up);
+                if (slope > maxSlope) maxSlope = slope;
+                normalSum += normal;
+            }
+        }
+
+        static bool PointInPoly (List<Vector2> poly, float x, float y) {
+            int count = poly.Count;
+            bool inside = false;
+            Vector2 pj = poly[count - 1];
+            for (int i = 0; i < count; i++) {
+                Vector2 pi = poly[i];
+                if (((pi.y <= y && y < pj.y) || (pj.y <= y && y < pi.y)) &&
+                    (x < (pj.x - pi.x) * (y - pi.y) / (pj.y - pi.y) + pi.x))
+                    inside = !inside;
+                pj = pi;
+            }
+            return inside;
+        }
+
+        static Vector2 PolyCentroid (List<Vector2> poly) {
+            Vector2 c = Vector2.zero;
+            float area = 0;
+            int count = poly.Count;
+            for (int i = 0; i < count; i++) {
+                Vector2 p1 = poly[i];
+                Vector2 p2 = poly[(i + 1) % count];
+                float d = p1.x * p2.y - p1.y * p2.x;
+                area += d;
+                c.x += (p1.x + p2.x) * d;
+                c.y += (p1.y + p2.y) * d;
+            }
+            if (Mathf.Abs(area) < 1e-12f) return poly[0];
+            return c / (3f * area);
+        }
+
+        #endregion
+
+
     }
 }
-

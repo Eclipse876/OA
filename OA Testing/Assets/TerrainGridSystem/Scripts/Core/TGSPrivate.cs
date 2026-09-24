@@ -1,4 +1,5 @@
 //#define SHOW_DEBUG_GIZMOS
+#pragma warning disable UDR0004
 using UnityEngine;
 using System;
 using System.Collections.Generic;
@@ -132,6 +133,7 @@ namespace TGS {
 
         // Temp structures for miter-join reordering (to avoid per-frame allocations)
         List<Vector3> tempOrderedFrontierVertices;
+        List<Vector3> tempFrontierSegmentBuffer;
         List<int> tempPolylineStarts;
         List<int> tempPolylineEnds;
         List<bool> tempPolylineClosed;
@@ -472,11 +474,7 @@ namespace TGS {
                     cameraMain = Camera.main;
                     int gameObjectLayerMask = 1 << gameObject.layer;
                     if (cameraMain == null || (cameraMain.cullingMask & gameObjectLayerMask) == 0) {
-#if UNITY_2023_1_OR_NEWER
-                    Camera[] cams = FindObjectsByType<Camera>(FindObjectsSortMode.None);
-#else
-                        Camera[] cams = FindObjectsOfType<Camera>();
-#endif
+                        Camera[] cams = Misc.FindObjectsOfType<Camera>();
                         for (int k = 0; k < cams.Length; k++) {
                             Camera cam = cams[k];
                             if (cam.isActiveAndEnabled && (cam.cullingMask & gameObjectLayerMask) != 0) {
@@ -701,6 +699,7 @@ namespace TGS {
             tempUVs = new List<Vector4>();
             tempIndices = new List<int>();
             tempOrderedFrontierVertices = new List<Vector3>();
+            tempFrontierSegmentBuffer = new List<Vector3>();
             tempPolylineStarts = new List<int>();
             tempPolylineEnds = new List<int>();
             tempPolylineClosed = new List<bool>();
@@ -1752,6 +1751,8 @@ namespace TGS {
         void CellUpdateBounds (Cell cell) {
             if (cell == null) return;
 
+            cellsGeometryVersion++;
+
             if (cell.region.polygon.contours.Count == 0)
                 return;
 
@@ -2355,6 +2356,8 @@ namespace TGS {
 
             _numTerritories = Mathf.Clamp(_numTerritories, 0, cellCount);
             territories.Clear();
+            // invalidate territory lookup: regeneration replaces Territory instances even when count is unchanged
+            lastTerritoryLookupCount = -1;
 
             if (_numTerritories == 0) {
                 if (territoryLayer != null) {
@@ -3324,6 +3327,43 @@ namespace TGS {
             mat.SetFloat(ShaderParams.Offset, depthOffset);
         }
 
+        void UpdateGridLinesDepthTest () {
+
+            int zTest = (int)(_gridLinesIgnoreDepth ? UnityEngine.Rendering.CompareFunction.Always : UnityEngine.Rendering.CompareFunction.LessEqual);
+
+            SetLinesZTest(cellsThinMat, zTest);
+            SetLinesZTest(cellsGeoMat, zTest);
+            SetLinesZTest(territoriesThinMat, zTest);
+            SetLinesZTest(territoriesGeoMat, zTest);
+            SetLinesZTest(territoriesThickHackMat, zTest);
+            SetLinesZTest(territoriesDisputedThinMat, zTest);
+            SetLinesZTest(territoriesDisputedGeoMat, zTest);
+            SetLinesZTest(territoriesGradientMat, zTest);
+
+            if (frontierColorCache != null) {
+                foreach (Material mat in frontierColorCache.Values) {
+                    SetLinesZTest(mat, zTest);
+                }
+            }
+
+            // instanced copies assigned to renderers (custom borders, frontiers, interior borders)
+            Renderer[] renderers = transform.GetComponentsInChildren<Renderer>(true);
+            for (int k = 0; k < renderers.Length; k++) {
+                Material mat = renderers[k].sharedMaterial;
+                if (mat == null || mat.shader == null) continue;
+                if (mat.shader.name.StartsWith(LINE_SHADERS_PREFIX, StringComparison.Ordinal)) {
+                    SetLinesZTest(mat, zTest);
+                }
+            }
+        }
+
+        const string LINE_SHADERS_PREFIX = "Terrain Grid System/Unlit Single Color ";
+
+        void SetLinesZTest (Material mat, int zTest) {
+            if (mat == null) return;
+            mat.SetInt(ShaderParams.ZTest, zTest);
+        }
+
         int GetMaterialBaseRenderQueue (Material mat) {
             if (mat == null) return 0;
             if (!materialBaseRenderQueues.TryGetValue(mat, out int baseQueue)) {
@@ -4094,6 +4134,7 @@ namespace TGS {
                     DrawColorizedTerritories();
                 }
                 UpdateMaterialDepthOffset();
+                UpdateGridLinesDepthTest();
                 UpdateMaterialNearClipFade();
                 UpdateMaterialFarFade();
                 UpdateMaterialThickness();
@@ -4313,13 +4354,23 @@ namespace TGS {
             mesh.SetTriangles(tempIndices, 0);
         }
 
-        void BuildOrderedFrontierVertices (Vector3[] vertices) {
+        void BuildOrderedFrontierVertices (Vector3[] vertices, FrontierOrientation orientation = FrontierOrientation.Natural) {
+            BuildOrderedFrontierVertices((IList<Vector3>)vertices, orientation);
+        }
+
+        void BuildOrderedFrontierVertices (List<Vector3> vertices, FrontierOrientation orientation = FrontierOrientation.Natural) {
+            BuildOrderedFrontierVertices((IList<Vector3>)vertices, orientation);
+        }
+
+        void BuildOrderedFrontierVertices (IList<Vector3> vertices, FrontierOrientation orientation = FrontierOrientation.Natural) {
             // Reorder independent segment pairs into continuous polylines by connecting shared endpoints in both directions
+            // In TerritoryOnLeft/TerritoryOnRight modes segments arrive pre-oriented, so they are chained without reversing to preserve the side guarantee
+            bool keepSegmentDirection = orientation == FrontierOrientation.TerritoryOnLeft || orientation == FrontierOrientation.TerritoryOnRight;
             tempOrderedFrontierVertices.Clear();
             tempPolylineStarts.Clear();
             tempPolylineEnds.Clear();
             tempPolylineClosed.Clear();
-            int numVertices = vertices.Length;
+            int numVertices = vertices.Count;
             if (numVertices < 2) return;
             int segCount = numVertices >> 1;
             if (tempVisitedSegments == null || tempVisitedSegments.Length < segCount) {
@@ -4359,7 +4410,7 @@ namespace TGS {
                         int c = peList.Count;
                         for (int n = 0; n < c; n++) { int idx = peList[n]; if (!tempVisitedSegments[idx]) { prevSeg = idx; break; } }
                     }
-                    if (prevSeg < 0 && segmentStartMap.TryGetValue(currentStartKey, out List<int> psList)) {
+                    if (prevSeg < 0 && !keepSegmentDirection && segmentStartMap.TryGetValue(currentStartKey, out List<int> psList)) {
                         int c = psList.Count;
                         for (int n = 0; n < c; n++) { int idx = psList[n]; if (!tempVisitedSegments[idx]) { prevSeg = idx; reversePrev = true; break; } }
                     }
@@ -4386,7 +4437,7 @@ namespace TGS {
                         int c = nsList.Count;
                         for (int n = 0; n < c; n++) { int idx = nsList[n]; if (!tempVisitedSegments[idx]) { nextSeg = idx; break; } }
                     }
-                    if (nextSeg < 0 && segmentEndMap.TryGetValue(currentEndKey, out List<int> neList)) {
+                    if (nextSeg < 0 && !keepSegmentDirection && segmentEndMap.TryGetValue(currentEndKey, out List<int> neList)) {
                         int c = neList.Count;
                         for (int n = 0; n < c; n++) { int idx = neList[n]; if (!tempVisitedSegments[idx]) { nextSeg = idx; reverse = true; break; } }
                     }
@@ -4400,15 +4451,30 @@ namespace TGS {
                     currentEndKey = VertexKey(nextPoint);
                 }
 
+                int chainPoints = tempChainBuffer.Count;
+                bool isClosed = chainPoints >= 3 && VertexKey(tempChainBuffer[0]) == VertexKey(tempChainBuffer[chainPoints - 1]);
+
+                // Enforce requested winding on closed loops (shoelace sign, reverse in place)
+                if (isClosed && (orientation == FrontierOrientation.Clockwise || orientation == FrontierOrientation.CounterClockwise)) {
+                    float area = 0;
+                    for (int p = 0; p < chainPoints - 1; p++) {
+                        Vector3 a = tempChainBuffer[p];
+                        Vector3 b = tempChainBuffer[p + 1];
+                        area += (b.x - a.x) * (b.y + a.y);
+                    }
+                    bool isClockwise = area > 0;
+                    if (isClockwise != (orientation == FrontierOrientation.Clockwise)) {
+                        tempChainBuffer.Reverse();
+                    }
+                }
+
                 // Emit as segment pairs into tempOrderedFrontierVertices
                 int chainStart = tempOrderedFrontierVertices.Count;
-                int chainPoints = tempChainBuffer.Count;
                 for (int p = 0; p < chainPoints - 1; p++) {
                     tempOrderedFrontierVertices.Add(tempChainBuffer[p]);
                     tempOrderedFrontierVertices.Add(tempChainBuffer[p + 1]);
                 }
                 int chainEnd = tempOrderedFrontierVertices.Count; // exclusive
-                bool isClosed = chainPoints >= 3 && VertexKey(tempChainBuffer[0]) == VertexKey(tempChainBuffer[chainPoints - 1]);
                 tempPolylineStarts.Add(chainStart);
                 tempPolylineEnds.Add(chainEnd);
                 tempPolylineClosed.Add(isClosed);
@@ -6967,11 +7033,7 @@ namespace TGS {
 
         void CheckRectangleSelectionObject () {
             if (_rectangleSelection == null) {
-#if UNITY_2023_1_OR_NEWER
-                _rectangleSelection = FindFirstObjectByType<RectangleSelection>();
-#else
-                _rectangleSelection = FindObjectOfType<RectangleSelection>();
-#endif
+                _rectangleSelection = Misc.FindObjectOfType<RectangleSelection>();
             }
             if (_rectangleSelection == null) {
                 GameObject rectGO = Resources.Load<GameObject>("Prefabs/CanvasSelectionRectangle");

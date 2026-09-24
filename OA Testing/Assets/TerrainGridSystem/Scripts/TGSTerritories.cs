@@ -15,6 +15,34 @@ namespace TGS {
         UserDefined
     }
 
+    public enum FrontierOrientation {
+        Natural,
+        Clockwise,
+        CounterClockwise,
+        TerritoryOnLeft,
+        TerritoryOnRight
+    }
+
+    /// <summary>
+    /// Side of an edge relative to its vertex1 -> vertex2 direction.
+    /// </summary>
+    public enum EdgeSide {
+        Unknown,
+        Left,
+        Right
+    }
+
+    /// <summary>
+    /// Describes one continuous polyline inside a frontier vertices list: vertices[start] to vertices[start + count - 1] in segment-pair layout.
+    /// side reports where the queried territory lies relative to each segment's direction; it is only set when a TerritoryOnLeft/TerritoryOnRight orientation was requested, otherwise Unknown.
+    /// </summary>
+    public struct FrontierChain {
+        public int start;
+        public int count;
+        public bool closed;
+        public EdgeSide side;
+    }
+
     public partial class TerrainGridSystem : MonoBehaviour {
 
         [NonSerialized]
@@ -1041,8 +1069,23 @@ namespace TGS {
         /// <param name="adjacentTerritoryRegionIndex">Output: The region index within the adjacent territory, or -1 if not found</param>
         /// <returns>True if an adjacent territory was found, false otherwise</returns>
         public bool TerritoryGetAdjacentTerritoryForEdge(int territoryIndex, Vector2 vertex1, Vector2 vertex2, out int adjacentTerritoryIndex, out int adjacentTerritoryRegionIndex) {
+            return TerritoryGetAdjacentTerritoryForEdge(territoryIndex, vertex1, vertex2, out adjacentTerritoryIndex, out adjacentTerritoryRegionIndex, out _);
+        }
+
+        /// <summary>
+        /// Returns the adjacent territory and region index for a given edge defined by two vertices, plus the side of the edge (relative to the vertex1 -> vertex2 direction) on which the queried territory lies.
+        /// </summary>
+        /// <param name="territoryIndex">The territory index containing the edge</param>
+        /// <param name="vertex1">First vertex of the edge</param>
+        /// <param name="vertex2">Second vertex of the edge</param>
+        /// <param name="adjacentTerritoryIndex">Output: The adjacent territory index, or -1 if not found</param>
+        /// <param name="adjacentTerritoryRegionIndex">Output: The region index within the adjacent territory, or -1 if not found</param>
+        /// <param name="territorySide">Output: side of the edge where the queried territory lies, walking the edge from vertex1 to vertex2. Unknown if the territory is not found on either side</param>
+        /// <returns>True if an adjacent territory was found, false otherwise</returns>
+        public bool TerritoryGetAdjacentTerritoryForEdge(int territoryIndex, Vector2 vertex1, Vector2 vertex2, out int adjacentTerritoryIndex, out int adjacentTerritoryRegionIndex, out EdgeSide territorySide) {
             adjacentTerritoryIndex = -1;
             adjacentTerritoryRegionIndex = -1;
+            territorySide = EdgeSide.Unknown;
             if (!ValidTerritoryIndex(territoryIndex)) return false;
 
             CheckGridChanges();
@@ -1056,21 +1099,90 @@ namespace TGS {
             Vector2 point1 = edgeMidpoint + perpendicular * offsetDistance;
             Vector2 point2 = edgeMidpoint - perpendicular * offsetDistance;
 
-            Territory territory1 = TerritoryGetAtLocalPosition(point1, out int regionIndex1);
-            Territory territory2 = TerritoryGetAtLocalPosition(point2, out int regionIndex2);
+            // Cell lookup instead of territory polygons: enclave territories punch holes the polygon test does not see
+            Cell cell1 = CellGetAtLocalPosition(point1);
+            Cell cell2 = CellGetAtLocalPosition(point2);
+            int territory1Index = cell1 != null ? cell1.territoryIndex : -1;
+            int territory2Index = cell2 != null ? cell2.territoryIndex : -1;
+
+            // point1 lies on the left side of the vertex1 -> vertex2 direction
+            if (territory1Index == territoryIndex) {
+                territorySide = EdgeSide.Left;
+            } else if (territory2Index == territoryIndex) {
+                territorySide = EdgeSide.Right;
+            }
 
             // Find the territory that is not the input territory and determine the region index
-            if (territory1 != null && TerritoryGetIndex(territory1) != territoryIndex) {
-                adjacentTerritoryIndex = TerritoryGetIndex(territory1);
-                adjacentTerritoryRegionIndex = regionIndex1;
+            if (territory1Index >= 0 && territory1Index != territoryIndex) {
+                adjacentTerritoryIndex = territory1Index;
+                adjacentTerritoryRegionIndex = GetTerritoryRegionIndexOfCell(territory1Index, cell1);
                 return true;
-            } else if (territory2 != null && TerritoryGetIndex(territory2) != territoryIndex) {
-                adjacentTerritoryIndex = TerritoryGetIndex(territory2);
-                adjacentTerritoryRegionIndex = regionIndex2;
+            } else if (territory2Index >= 0 && territory2Index != territoryIndex) {
+                adjacentTerritoryIndex = territory2Index;
+                adjacentTerritoryRegionIndex = GetTerritoryRegionIndexOfCell(territory2Index, cell2);
                 return true;
             }
 
             return false;
+        }
+
+        int GetTerritoryRegionIndexOfCell (int territoryIndex, Cell cell) {
+            Territory territory = territories[territoryIndex];
+            int regionsCount = territory.regions.Count;
+            for (int r = 0; r < regionsCount; r++) {
+                if (territory.regions[r].cells.Contains(cell)) return r;
+            }
+            return -1;
+        }
+
+        void FlushPendingTerritoryChanges () {
+            if (needUpdateTerritories) {
+                FindTerritoriesFrontiers();
+                UpdateTerritoriesBoundary();
+                needUpdateTerritories = false;
+            }
+        }
+
+        /// <summary>
+        /// Returns the region index within its territory that contains the given cell, or -1 if the cell belongs to no territory
+        /// </summary>
+        public int TerritoryGetRegionIndexAtCell (int cellIndex) {
+            if (!ValidCellIndex(cellIndex)) return -1;
+            Cell cell = cells[cellIndex];
+            int territoryIndex = cell.territoryIndex;
+            if (territoryIndex < 0 || territoryIndex >= territories.Count) return -1;
+            FlushPendingTerritoryChanges();
+            return GetTerritoryRegionIndexOfCell(territoryIndex, cell);
+        }
+
+        /// <summary>
+        /// Returns the index of the territory region with the largest polygon area (ties broken by lowest region index), or -1 if the territory has no regions
+        /// </summary>
+        public int TerritoryGetMainRegionIndex (int territoryIndex) {
+            if (!ValidTerritoryIndex(territoryIndex)) return -1;
+            FlushPendingTerritoryChanges();
+            Territory territory = territories[territoryIndex];
+            if (territory.regions == null) return -1;
+            int regionsCount = territory.regions.Count;
+            int best = -1;
+            float bestArea = -1;
+            for (int r = 0; r < regionsCount; r++) {
+                Region region = territory.regions[r];
+                if (region == null || region.points == null || region.points.Count < 3) continue;
+                float area = 0;
+                int pointCount = region.points.Count;
+                for (int k = 0; k < pointCount; k++) {
+                    Vector2 p = region.points[k];
+                    Vector2 q = region.points[(k + 1) % pointCount];
+                    area += p.x * q.y - q.x * p.y;
+                }
+                area = Mathf.Abs(area * 0.5f);
+                if (area > bestArea) {
+                    bestArea = area;
+                    best = r;
+                }
+            }
+            return best;
         }
 
         /// <summary>
@@ -1131,6 +1243,184 @@ namespace TGS {
             }
 
             return cellIndices.Count;
+        }
+
+        /// <summary>
+        /// Returns the ordered vertices of the frontier of a territory.
+        /// </summary>
+        /// <returns>Number of vertices added to the list.</returns>
+        /// <param name="territoryIndex">Territory index.</param>
+        /// <param name="vertices">List to be filled with vertices in local grid space (offset and scale already applied). Consecutive pairs (i, i+1) form one line segment; within a continuous chain vertices[2k+1] equals vertices[2k+2].</param>
+        /// <param name="regionIndex">If the territory has several regions, the index of the region. -1 means all regions.</param>
+        /// <param name="includeGridEdges">If true, also include border segments where the territory touches the outer edge of the grid.</param>
+        /// <param name="orientation">Desired chain orientation. Clockwise/CounterClockwise apply to closed chains only. TerritoryOnLeft/TerritoryOnRight orient every chain, open or closed, so the queried territory lies on that side of each segment's direction.</param>
+        /// <param name="chains">Optional list to be filled with the range, closed state and territory side of each continuous polyline in the vertices list.</param>
+        public int TerritoryGetFrontierVertices (int territoryIndex, List<Vector2> vertices, int regionIndex = -1, bool includeGridEdges = false, FrontierOrientation orientation = FrontierOrientation.Natural, List<FrontierChain> chains = null) {
+            return TerritoryGetFrontierVertices(territoryIndex, -1, vertices, regionIndex, includeGridEdges, orientation, chains);
+        }
+
+        /// <summary>
+        /// Returns the ordered vertices of the frontier shared between a territory and another one.
+        /// </summary>
+        /// <returns>Number of vertices added to the list.</returns>
+        /// <param name="territoryIndex">Territory index.</param>
+        /// <param name="otherTerritoryIndex">Other territory index. -1 means any other territory.</param>
+        /// <param name="vertices">List to be filled with vertices in local grid space (offset and scale already applied). Consecutive pairs (i, i+1) form one line segment; within a continuous chain vertices[2k+1] equals vertices[2k+2].</param>
+        /// <param name="regionIndex">Limit search to a given region of the source territory. -1 means all regions.</param>
+        /// <param name="includeGridEdges">Only honored when otherTerritoryIndex is -1. If true, also include border segments where the territory touches the outer edge of the grid.</param>
+        /// <param name="orientation">Desired chain orientation. Clockwise/CounterClockwise apply to closed chains only. TerritoryOnLeft/TerritoryOnRight orient every chain, open or closed, so the queried territory lies on that side of each segment's direction.</param>
+        /// <param name="chains">Optional list to be filled with the range, closed state and territory side of each continuous polyline in the vertices list.</param>
+        public int TerritoryGetFrontierVertices (int territoryIndex, int otherTerritoryIndex, List<Vector2> vertices, int regionIndex = -1, bool includeGridEdges = false, FrontierOrientation orientation = FrontierOrientation.Natural, List<FrontierChain> chains = null) {
+
+            CheckGridChanges();
+
+            if (vertices == null) return 0;
+            vertices.Clear();
+            if (chains != null) chains.Clear();
+            if (territoryIndex < 0 || territoryIndex >= territories.Count || territories[territoryIndex].cells == null || cells == null)
+                return 0;
+
+            cellUsedFlag++;
+
+            if (regionIndex >= 0) {
+                if (regionIndex >= territories[territoryIndex].regions.Count) return 0;
+                List<Cell> regionCells = territories[territoryIndex].regions[regionIndex].cells;
+                int regionCellsCount = regionCells.Count;
+                for (int k = 0; k < regionCellsCount; k++) {
+                    regionCells[k].usedFlag2 = cellUsedFlag;
+                }
+            }
+
+            tempFrontierSegmentBuffer.Clear();
+            bool orientBySide = orientation == FrontierOrientation.TerritoryOnLeft || orientation == FrontierOrientation.TerritoryOnRight;
+
+            foreach (KeyValuePair<Segment, Frontier> kv in territoryNeighbourHit) {
+                Frontier frontier = kv.Value;
+                if (frontier.region1 == null || frontier.region2 == null) continue;
+                Cell cell1 = (Cell)frontier.region1.entity;
+                Cell cell2 = (Cell)frontier.region2.entity;
+                Cell ownCell = null;
+                if (cell1.visible && cell1.territoryIndex == territoryIndex && (otherTerritoryIndex < 0 || cell2.territoryIndex == otherTerritoryIndex)) {
+                    ownCell = cell1;
+                } else if (cell2.visible && cell2.territoryIndex == territoryIndex && (otherTerritoryIndex < 0 || cell1.territoryIndex == otherTerritoryIndex)) {
+                    ownCell = cell2;
+                }
+                if (ownCell == null) continue;
+                if (regionIndex >= 0 && ownCell.usedFlag2 != cellUsedFlag) continue;
+
+                Segment seg = kv.Key;
+                AddOrientedFrontierSegment(seg, ownCell, orientBySide, orientation);
+            }
+
+            if (includeGridEdges && otherTerritoryIndex < 0 && territoryFrontiers != null) {
+                int frontierCount = territoryFrontiers.Count;
+                int cellsCount = cells.Count;
+                for (int k = 0; k < frontierCount; k++) {
+                    Segment seg = territoryFrontiers[k];
+                    if (!seg.border || seg.territoryIndex != territoryIndex) continue;
+                    int ci = seg.cellIndex;
+                    Cell edgeCell = ci >= 0 && ci < cellsCount ? cells[ci] : null;
+                    if (regionIndex >= 0 && (edgeCell == null || edgeCell.usedFlag2 != cellUsedFlag)) continue;
+                    AddOrientedFrontierSegment(seg, edgeCell, orientBySide, orientation);
+                }
+            }
+
+            return EmitOrderedFrontierVertices(vertices, chains, orientation);
+        }
+
+        // Appends a frontier segment to tempFrontierSegmentBuffer, flipped if needed so ownCell lies on the requested side of the segment direction
+        void AddOrientedFrontierSegment (Segment seg, Cell ownCell, bool orientBySide, FrontierOrientation orientation) {
+            Vector3 a = GetScaledVector(seg.start);
+            Vector3 b = GetScaledVector(seg.end);
+            if (orientBySide && ownCell != null) {
+                Vector2 c = ownCell.scaledCenter;
+                float cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+                bool cellOnLeft = cross > 0;
+                if (cellOnLeft == (orientation == FrontierOrientation.TerritoryOnRight)) {
+                    Vector3 tmp = a; a = b; b = tmp;
+                }
+            }
+            tempFrontierSegmentBuffer.Add(a);
+            tempFrontierSegmentBuffer.Add(b);
+        }
+
+        // Shared tail: order the segment buffer, copy to the user list and optionally report chain ranges
+        int EmitOrderedFrontierVertices (List<Vector2> vertices, List<FrontierChain> chains, FrontierOrientation orientation) {
+            BuildOrderedFrontierVertices(tempFrontierSegmentBuffer, orientation);
+
+            int orderedCount = tempOrderedFrontierVertices.Count;
+            for (int k = 0; k < orderedCount; k++) {
+                vertices.Add(tempOrderedFrontierVertices[k]);
+            }
+            if (chains != null) {
+                EdgeSide side = orientation == FrontierOrientation.TerritoryOnLeft ? EdgeSide.Left : orientation == FrontierOrientation.TerritoryOnRight ? EdgeSide.Right : EdgeSide.Unknown;
+                int chainCount = tempPolylineStarts.Count;
+                for (int c = 0; c < chainCount; c++) {
+                    FrontierChain chain;
+                    chain.start = tempPolylineStarts[c];
+                    chain.count = tempPolylineEnds[c] - tempPolylineStarts[c];
+                    chain.closed = tempPolylineClosed[c];
+                    chain.side = side;
+                    chains.Add(chain);
+                }
+            }
+            return vertices.Count;
+        }
+
+        /// <summary>
+        /// Returns the ordered vertices of the segments where a territory touches the outer edge of the grid.
+        /// </summary>
+        /// <returns>Number of vertices added to the list.</returns>
+        /// <param name="territoryIndex">Territory index. Pass -1 to get the grid edge segments of all territories (the whole grid perimeter).</param>
+        /// <param name="vertices">List to be filled with vertices in local grid space (offset and scale already applied). Consecutive pairs (i, i+1) form one line segment; within a continuous chain vertices[2k+1] equals vertices[2k+2]. Disjoint edge runs (e.g. a corner territory touching two sides) come back as separate chains.</param>
+        /// <param name="regionIndex">If the territory has several regions, the index of the region. -1 means all regions. Ignored when territoryIndex is -1.</param>
+        /// <param name="orientation">Desired chain orientation. Clockwise/CounterClockwise apply to closed chains only. TerritoryOnLeft/TerritoryOnRight orient every chain so the territory lies on that side; they require a specific territoryIndex.</param>
+        /// <param name="chains">Optional list to be filled with the range, closed state and territory side of each continuous polyline in the vertices list.</param>
+        public int TerritoryGetGridEdgeVertices (int territoryIndex, List<Vector2> vertices, int regionIndex = -1, FrontierOrientation orientation = FrontierOrientation.Natural, List<FrontierChain> chains = null) {
+
+            CheckGridChanges();
+
+            if (vertices == null) return 0;
+            vertices.Clear();
+            if (chains != null) chains.Clear();
+            bool orientBySide = orientation == FrontierOrientation.TerritoryOnLeft || orientation == FrontierOrientation.TerritoryOnRight;
+            if (orientBySide && territoryIndex < 0) {
+                Debug.LogError("TerritoryGetGridEdgeVertices: TerritoryOnLeft/TerritoryOnRight orientation requires a specific territory index.");
+                return 0;
+            }
+            if (territoryIndex < -1 || territoryIndex >= territories.Count || cells == null)
+                return 0;
+            if (territoryIndex >= 0 && territories[territoryIndex].cells == null)
+                return 0;
+            if (territoryFrontiers == null) return 0;
+
+            cellUsedFlag++;
+
+            bool filterByRegion = territoryIndex >= 0 && regionIndex >= 0;
+            if (filterByRegion) {
+                if (regionIndex >= territories[territoryIndex].regions.Count) return 0;
+                List<Cell> regionCells = territories[territoryIndex].regions[regionIndex].cells;
+                int regionCellsCount = regionCells.Count;
+                for (int k = 0; k < regionCellsCount; k++) {
+                    regionCells[k].usedFlag2 = cellUsedFlag;
+                }
+            }
+
+            tempFrontierSegmentBuffer.Clear();
+
+            int frontierCount = territoryFrontiers.Count;
+            int cellsCount = cells.Count;
+            for (int k = 0; k < frontierCount; k++) {
+                Segment seg = territoryFrontiers[k];
+                if (!seg.border) continue;
+                if (territoryIndex >= 0 && seg.territoryIndex != territoryIndex) continue;
+                int ci = seg.cellIndex;
+                Cell edgeCell = ci >= 0 && ci < cellsCount ? cells[ci] : null;
+                if (filterByRegion && (edgeCell == null || edgeCell.usedFlag2 != cellUsedFlag)) continue;
+                AddOrientedFrontierSegment(seg, edgeCell, orientBySide, orientation);
+            }
+
+            return EmitOrderedFrontierVertices(vertices, chains, orientation);
         }
 
         /// <summary>
@@ -1952,13 +2242,15 @@ namespace TGS {
             if (!ValidTerritoryIndex(territoryIndex)) return false;
             Territory territory = territories[territoryIndex];
             foreach (Cell cell in territory.cells) {
-                cell.territoryIndex = -1;
+                if (cell != null) cell.territoryIndex = -1;
             }
             DestroyTerritorySurfaces(territoryIndex);
             TerritoryHideInteriorBorder(territoryIndex);
+            int oldCount = territories.Count;
             territories.RemoveAt(territoryIndex);
             // update territory indices for other cells
             foreach (Cell cell in cells) {
+                if (cell == null) continue;
                 if (cell.territoryIndex >= territoryIndex) {
                     cell.territoryIndex--;
                 }
@@ -1967,7 +2259,22 @@ namespace TGS {
             lastTerritoryLookupCount = -1;
             needUpdateTerritories = true;
             issueRedraw = RedrawType.Full;
+            NotifyTerritoryIndicesChanged(territoryIndex, oldCount);
             return true;
+        }
+
+        void NotifyTerritoryIndicesChanged (int removedIndex, int oldCount) {
+            if (OnTerritoryIndicesChanged == null) return;
+            List<int> oldToNew = new List<int>(oldCount);
+            for (int k = 0; k < oldCount; k++) {
+                if (removedIndex < 0 || k == removedIndex) {
+                    oldToNew.Add(-1);
+                }
+                else {
+                    oldToNew.Add(k < removedIndex ? k : k - 1);
+                }
+            }
+            OnTerritoryIndicesChanged(this, removedIndex, oldToNew);
         }
 
 
@@ -1976,15 +2283,19 @@ namespace TGS {
         /// </summary>
         public void TerritoryDestroyAll () {
             foreach (Cell cell in cells) {
-                cell.territoryIndex = -1;
+                if (cell != null) cell.territoryIndex = -1;
             }
             DestroyTerritorySurfaces();
             TerritoryHideInteriorBorders();
+            int oldCount = territories.Count;
             territories.Clear();
             _numTerritories = 0;
             lastTerritoryLookupCount = -1;
             needUpdateTerritories = true;
             issueRedraw = RedrawType.IncrementalTerritories;
+            if (oldCount > 0) {
+                NotifyTerritoryIndicesChanged(-1, oldCount);
+            }
         }
 
         /// <summary>

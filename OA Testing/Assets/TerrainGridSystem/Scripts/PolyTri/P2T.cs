@@ -29,6 +29,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#pragma warning disable UDR0001
 
 namespace TGS.Poly2Tri {
     public static class P2T {

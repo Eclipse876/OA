@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿#pragma warning disable UDR0001
+using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 

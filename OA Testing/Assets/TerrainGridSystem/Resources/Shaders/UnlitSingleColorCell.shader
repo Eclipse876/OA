@@ -1,4 +1,4 @@
-﻿Shader "Terrain Grid System/Unlit Single Color Cell Thin Line" {
+Shader "Terrain Grid System/Unlit Single Color Cell Thin Line" {
  
 Properties {
     _Color ("Color", Color) = (1,1,1,1)
@@ -10,6 +10,7 @@ Properties {
     _CircularFadeDistance ("Circular Fade Distance", Float) = 250000
     _CircularFadeFallOff ("Circular Fade FallOff", Float) = 50.0
     _ZWrite("ZWrite", Int) = 0
+    [HideInInspector] _ZTest("ZTest", Int) = 4
     _SrcBlend("Src Blend", Int) = 5
     _DstBlend("Dst Blend", Int) = 10
 	_StencilComp("Stencil Comp", Int) = 6 // not equal
@@ -23,6 +24,7 @@ SubShader {
   	}
     Blend [_SrcBlend] [_DstBlend]
   	ZWrite [_ZWrite]
+  	ZTest [_ZTest]
     Stencil {
         Ref 2
         Comp [_StencilComp]

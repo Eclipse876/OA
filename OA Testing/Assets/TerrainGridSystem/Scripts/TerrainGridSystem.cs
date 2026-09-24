@@ -236,6 +236,26 @@ namespace TGS {
 
 
         [SerializeField]
+        bool _gridLinesIgnoreDepth;
+
+        /// <summary>
+        /// When enabled, grid lines (cell borders and territory frontiers) are drawn ignoring the depth buffer so they show through scene geometry
+        /// </summary>
+        public bool gridLinesIgnoreDepth {
+            get {
+                return _gridLinesIgnoreDepth;
+            }
+            set {
+                if (_gridLinesIgnoreDepth != value) {
+                    _gridLinesIgnoreDepth = value;
+                    isDirty = true;
+                    UpdateGridLinesDepthTest();
+                }
+            }
+        }
+
+
+        [SerializeField]
         bool _disableMeshGeneration;
 
         public bool disableMeshGeneration {
@@ -1362,11 +1382,7 @@ namespace TGS {
         public static TerrainGridSystem instance {
             get {
                 if (_instance == null) {
-#if UNITY_2023_1_OR_NEWER
-                    _instance = FindFirstObjectByType<TerrainGridSystem>();
-#else
-                    _instance = FindObjectOfType<TerrainGridSystem>();
-#endif
+                    _instance = Misc.FindObjectOfType<TerrainGridSystem>();
                     if (_instance == null) {
                         Debug.LogWarning("TerrainGridSystem gameobject not found in the scene!");
                     }

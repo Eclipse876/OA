@@ -1,4 +1,4 @@
-﻿Shader "Terrain Grid System/Unlit Single Color Territory Geo" {
+Shader "Terrain Grid System/Unlit Single Color Territory Geo" {
  
 Properties {
     _MainTex ("Texture", 2D) = "black" {}
@@ -12,6 +12,7 @@ Properties {
     _CircularFadeFallOff ("Circular Fade FallOff", Float) = 50.0
     _Thickness ("Thickness", Float) = 0.05
     _ZWrite("ZWrite", Int) = 0
+    [HideInInspector] _ZTest("ZTest", Int) = 4
     _SrcBlend("Src Blend", Int) = 5
     _DstBlend("Dst Blend", Int) = 10
 	_StencilComp("Stencil Comp", Int) = 6 // not equal
@@ -25,6 +26,7 @@ SubShader {
     }
     Blend [_SrcBlend] [_DstBlend]
   	ZWrite [_ZWrite]
+  	ZTest [_ZTest]
   	Cull Off
     Stencil {
         Ref 4

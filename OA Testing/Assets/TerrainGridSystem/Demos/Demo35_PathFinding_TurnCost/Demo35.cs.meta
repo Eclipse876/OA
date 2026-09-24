@@ -1,0 +1,17 @@
+fileFormatVersion: 2
+guid: c30e7eca1cd64d979f58390230cf999c
+MonoImporter:
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 244921
+  packageName: Terrain Grid System 2
+  packageVersion: 22.1
+  assetPath: Assets/TerrainGridSystem/Demos/Demo35_PathFinding_TurnCost/Demo35.cs
+  uploadId: 977730

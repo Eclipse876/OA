@@ -1,3 +1,4 @@
+#pragma warning disable UDR0001
 using System;
 using UnityEngine;
 
@@ -49,7 +50,9 @@ namespace TGS {
         }
 
         public static UnityEngine.Object[] FindObjectsOfType(Type type, bool includeInactive = false) {
-#if UNITY_2023_1_OR_NEWER
+#if UNITY_6000_4_OR_NEWER
+            return UnityEngine.Object.FindObjectsByType(type, includeInactive ? FindObjectsInactive.Include : FindObjectsInactive.Exclude);
+#elif UNITY_2023_1_OR_NEWER
             return UnityEngine.Object.FindObjectsByType(type, includeInactive ? FindObjectsInactive.Include : FindObjectsInactive.Exclude, FindObjectsSortMode.None);
 #else
             return UnityEngine.Object.FindObjectsOfType(type, includeInactive);
@@ -58,7 +61,9 @@ namespace TGS {
 
 
         public static T[] FindObjectsOfType<T>(bool includeInactive = false) where T : UnityEngine.Object {
-#if UNITY_2023_1_OR_NEWER
+#if UNITY_6000_4_OR_NEWER
+            return UnityEngine.Object.FindObjectsByType<T>(includeInactive ? FindObjectsInactive.Include : FindObjectsInactive.Exclude);
+#elif UNITY_2023_1_OR_NEWER
             return UnityEngine.Object.FindObjectsByType<T>(includeInactive ? FindObjectsInactive.Include : FindObjectsInactive.Exclude, FindObjectsSortMode.None);
 #else
             return UnityEngine.Object.FindObjectsOfType<T>(includeInactive);

@@ -26,6 +26,11 @@ namespace TGS.PathFinding {
             set;
         }
 
+        float TurnCost {
+            get;
+            set;
+        }
+
         CellType CellShape {
             get;
             set;

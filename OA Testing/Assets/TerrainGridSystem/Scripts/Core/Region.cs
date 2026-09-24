@@ -46,6 +46,11 @@ namespace TGS {
         /// </summary>
         public int sortIndex = -1;
 
+        // Cached polygon metrics for coverage queries, stamped against the grid geometry version
+        internal float cachedPolyArea;
+        internal bool cachedIsConvex;
+        internal int cachedGeomVersion = -1;
+
         /// <summary>
         /// Used internally to ensure smaller territory surfaces are rendered before others
         /// </summary>

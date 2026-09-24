@@ -86,18 +86,18 @@ namespace TGS {
                 if (!supportsTweening) {
                     duration = 0;
                 }
-                Invoke("Run", order / 1000f + delay);
+                Invoke(nameof(Run), order / 1000f + delay);
             }
         }
 
         public void PingSnippets() {
-            SendMessage("RunIfImmediate", SendMessageOptions.DontRequireReceiver);
+            SendMessage(nameof(RunIfImmediate), SendMessageOptions.DontRequireReceiver);
         }
 
         void RunIfImmediate() {
             if (enabled && (execute == ExecutionEvent.Immediate || (!Application.isPlaying && execute == ExecutionEvent.OnlyInEditMode))) {
                 if (Application.isPlaying) {
-                    Invoke("Run", order / 1000f);
+                    Invoke(nameof(Run), order / 1000f);
                 } else {
                     Run();
                 }

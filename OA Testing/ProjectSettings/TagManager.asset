@@ -38,8 +38,17 @@ TagManager:
   - 
   - 
   m_SortingLayers:
+  - name: Navigation
+    uniqueID: 495339909
+    locked: 0
   - name: Default
     uniqueID: 0
+    locked: 0
+  - name: WakeEffect
+    uniqueID: 3717605243
+    locked: 0
+  - name: Units
+    uniqueID: 1165271801
     locked: 0
   m_RenderingLayers:
   - Default

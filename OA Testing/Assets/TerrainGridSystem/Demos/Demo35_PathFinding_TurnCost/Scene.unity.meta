@@ -1,0 +1,13 @@
+fileFormatVersion: 2
+guid: eb19727af7e54ad3b49abe3a8380fef1
+DefaultImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 244921
+  packageName: Terrain Grid System 2
+  packageVersion: 22.1
+  assetPath: Assets/TerrainGridSystem/Demos/Demo35_PathFinding_TurnCost/Scene.unity
+  uploadId: 977730

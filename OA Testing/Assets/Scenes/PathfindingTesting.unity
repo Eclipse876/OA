@@ -197,7 +197,7 @@ LineRenderer:
   m_LightmapParameters: {fileID: 0}
   m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 495339909
-  m_SortingLayer: 0
+  m_SortingLayer: -1
   m_SortingOrder: 9
   m_MaskInteraction: 0
   m_Positions:
@@ -547,7 +547,7 @@ TilemapRenderer:
   m_LightmapParameters: {fileID: 0}
   m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 495339909
-  m_SortingLayer: 0
+  m_SortingLayer: -1
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_ChunkSize: {x: 32, y: 32, z: 32}
@@ -129282,7 +129282,7 @@ SpriteRenderer:
   m_LightmapParameters: {fileID: 0}
   m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 495339909
-  m_SortingLayer: 0
+  m_SortingLayer: -1
   m_SortingOrder: 8
   m_MaskInteraction: 0
   m_Sprite: {fileID: 67420061286799670, guid: 97db844baba188c499f5ff87501420c7, type: 3}
@@ -129430,7 +129430,7 @@ LineRenderer:
   m_LightmapParameters: {fileID: 0}
   m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 495339909
-  m_SortingLayer: 0
+  m_SortingLayer: -1
   m_SortingOrder: 10
   m_MaskInteraction: 0
   m_Positions:
