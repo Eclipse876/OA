@@ -2,7 +2,8 @@
     "name": "OA.Tests.EditMode",
     "rootNamespace": "",
     "references": [
-        "OA.Simulation"
+        "OA.Simulation",
+        "OA.Presentation"
     ],
     "optionalUnityReferences": [
         "TestAssemblies"

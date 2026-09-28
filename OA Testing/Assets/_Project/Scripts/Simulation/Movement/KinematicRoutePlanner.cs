@@ -139,6 +139,9 @@ namespace OA.Simulation.Movement
 
             if (totalDistance <= 0.0001f)
             {
+                // Clicking an already reached location is a valid arrival order.
+                routeOut.ControlPoints.Add(new ShipRoutePoint(geometryPath[0], 0f, 0f, RouteSegmentIntent.Stop));
+                routeOut.ControlPoints.Add(new ShipRoutePoint(geometryPath[geometryPath.Count - 1], 0f, 0f, RouteSegmentIntent.Stop));
                 return;
             }
 

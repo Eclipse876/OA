@@ -44,16 +44,21 @@ namespace OA.Simulation.Movement
         public float SpeedLimitKnots;
         public RouteSegmentIntent SegmentIntent;
 
+        // Conservative recovery courses brake at corners before turning.
+        public bool StopAtPoint;
+
         public ShipRoutePoint(
             Vector2 position,
             float distanceFromStartWorld,
             float speedLimitKnots,
-            RouteSegmentIntent segmentIntent)
+            RouteSegmentIntent segmentIntent,
+            bool stopAtPoint = false)
         {
             Position = position;
             DistanceFromStartWorld = Mathf.Max(0f, distanceFromStartWorld);
             SpeedLimitKnots = Mathf.Max(0f, speedLimitKnots);
             SegmentIntent = segmentIntent;
+            StopAtPoint = stopAtPoint;
         }
     }
 

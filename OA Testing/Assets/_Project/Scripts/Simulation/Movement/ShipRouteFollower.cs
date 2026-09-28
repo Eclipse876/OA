@@ -62,6 +62,10 @@ namespace OA.Simulation.Movement
                 return MovementCommand.Hold(movementState.Position, routeChanged);
             }
 
+            if (route[1].StopAtPoint)
+                return BuildCornerStopCommand(movementState, route, ref followState,
+                    speedMode, profile, map, arrivalDistance, routeChanged, out segmentIntent);
+
             UpdateProgress(
                 movementState.Position,
                 route,
@@ -125,8 +129,7 @@ namespace OA.Simulation.Movement
 
             // Once the route reaches its final sample, brake against actual endpoint distance.
             // This lets a heavy ship correct a small overshoot instead of declaring the route done.
-            if (guidanceIndex == route.Count - 1 ||
-                remainingDistance <= arrival)
+            if (remainingDistance <= Mathf.Max(arrival, lookAheadDistance))
             {
                 steeringTarget = finalPoint.Position;
                 remainingDistance = finalDistance;
@@ -147,6 +150,52 @@ namespace OA.Simulation.Movement
                 speedLimitKnots,
                 routeChanged,
                 terrainSpeedMultiplier);
+        }
+
+        // Recovery follows the legal geometry precisely, stopping at its corners
+        // instead of rejecting the whole destination when a sweeping turn clips shore.
+        private static MovementCommand BuildCornerStopCommand(
+            MovementState state, IReadOnlyList<ShipRoutePoint> route,
+            ref ShipRouteFollowState follow, MovementSpeedMode speedMode,
+            MovementProfileDefinition profile, HexMapRuntime map,
+            float arrivalDistance, bool routeChanged, out RouteSegmentIntent intent)
+        {
+            int index = Mathf.Clamp(follow.ConstraintIndex, 1, route.Count - 1);
+            bool stopped = state.SpeedKnots <= 0.01f && state.VelocityWorld.sqrMagnitude <= 0.000001f;
+            float arrival = Mathf.Max(0.001f, arrivalDistance);
+            float distance = Vector2.Distance(state.Position, route[index].Position);
+            if (distance <= arrival && stopped)
+            {
+                follow.ProgressWorld = route[index].DistanceFromStartWorld;
+                if (index == route.Count - 1)
+                {
+                    follow.IsComplete = true;
+                    intent = RouteSegmentIntent.Stop;
+                    return MovementCommand.Hold(state.Position);
+                }
+                index++;
+                distance = Vector2.Distance(state.Position, route[index].Position);
+            }
+
+            follow.ConstraintIndex = index;
+            follow.SegmentIndex = index - 1;
+            follow.IsComplete = false;
+            ShipRoutePoint previous = route[index - 1];
+            Vector2 leg = route[index].Position - previous.Position;
+            float fraction = leg.sqrMagnitude > 0.000001f
+                ? Mathf.Clamp01(Vector2.Dot(state.Position - previous.Position, leg) / leg.sqrMagnitude) : 0f;
+            follow.ProgressWorld = Mathf.Max(follow.ProgressWorld,
+                Mathf.Lerp(previous.DistanceFromStartWorld, route[index].DistanceFromStartWorld, fraction));
+
+            Vector2 toTarget = route[index].Position - state.Position;
+            float headingError = Mathf.Abs(Mathf.DeltaAngle(state.HeadingDegrees,
+                MovementMath.DirectionToHeadingDegrees(toTarget)));
+            intent = RouteSegmentIntent.Slow;
+            if (stopped && distance > arrival && headingError > ConfinedPivotReleaseAngleDegrees)
+                return MovementCommand.Pivot(route[index].Position, routeChanged);
+
+            return MovementCommand.Move(route[index].Position, distance, speedMode,
+                0f, routeChanged, GetTerrainSpeedMultiplier(map, state.Position, profile.draftClass));
         }
 
         // Applies the confined-water escape rule after ordinary route following

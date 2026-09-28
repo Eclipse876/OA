@@ -10,7 +10,6 @@ namespace OA.Simulation.Movement
     public sealed class ShipRoutePrediction
     {
         private const float PredictionSampleSpacing = 0.5f;
-        private const int MaximumPredictionSteps = 180000;
         private const float MinimumUsefulProgressWorld = 0.04f;
         private const float MinimumUsefulFinalDistanceImprovementWorld = 0.04f;
 
@@ -37,6 +36,8 @@ namespace OA.Simulation.Movement
         private float lastImprovementTime;
         private Vector2 finalPosition;
         private int steps;
+        private int maximumPredictionSteps;
+        private double elapsedPredictionTime;
 
         public bool IsRunning { get; private set; }
         public bool IsComplete => !IsRunning;
@@ -67,12 +68,15 @@ namespace OA.Simulation.Movement
             this.arrivalDistance = arrivalDistance;
             this.maximumUsefulArrivalTimeSeconds = maximumUsefulArrivalTimeSeconds;
             this.maximumPredictionSeconds = Mathf.Max(1f, maximumPredictionSeconds);
+            maximumPredictionSteps = (int)System.Math.Min(int.MaxValue - 1d,
+                System.Math.Ceiling(this.maximumPredictionSeconds / (double)this.dt) + 1d);
             this.stagnationSeconds = Mathf.Max(this.dt, stagnationSeconds);
 
             simulatedState = initialState;
             followState.Reset();
             predictedDistance = 0f;
             predictedTime = 0f;
+            elapsedPredictionTime = 0d;
             bestProgressWorld = 0f;
             bestFinalDistanceWorld = 0f;
             lastImprovementTime = 0f;
@@ -126,9 +130,9 @@ namespace OA.Simulation.Movement
                 return;
             }
 
-            int batchEnd = Mathf.Min(
-                MaximumPredictionSteps,
-                steps + Mathf.Max(1, maximumSteps));
+            int batchEnd = (int)System.Math.Min(
+                maximumPredictionSteps,
+                (long)steps + Mathf.Max(1, maximumSteps));
 
             while (steps < batchEnd)
             {
@@ -179,7 +183,8 @@ namespace OA.Simulation.Movement
                 predictedDistance += Vector2.Distance(
                     simulatedState.Position,
                     nextState.Position);
-                predictedTime += dt;
+                elapsedPredictionTime += dt;
+                predictedTime = (float)elapsedPredictionTime;
                 steps++;
 
                 AppendPredictedSample(
@@ -233,7 +238,7 @@ namespace OA.Simulation.Movement
                 }
             }
 
-            if (steps >= MaximumPredictionSteps)
+            if (steps >= maximumPredictionSteps)
             {
                 candidate.Reject(
                     ShipRouteFailureReason.PredictionBudgetExceeded,

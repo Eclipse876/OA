@@ -1,5 +1,7 @@
 # OA restart guide
 
+Navigation follow-up: see [the September 27 routing update](NAVIGATION_ROUTING.md) for the implemented destination snapping, moving handoff, and regression checks. The assessment below describes the September 23 baseline.
+
 Reviewed 2026-09-23 against the working tree, Git history, scene/asset references, and the running Unity editor. This is a status assessment and proposed roadmap; the navigation and new movement systems below have not been implemented in this review.
 
 ## Where the project stands

@@ -39,6 +39,54 @@ namespace OA.Presentation.Units
         private MovementSpeedMode speedMode;
         private bool forceStop;
         private bool routeChangedThisFrame;
+        private readonly ShipRoute scheduledRoute = new ShipRoute();
+        private long scheduledRouteStep;
+
+        public long SimulationStep { get; private set; }
+        public bool HasScheduledRoute { get; private set; }
+        public int ScheduledRouteGeneration { get; private set; }
+        public int AppliedRouteGeneration { get; private set; }
+
+        // Forecast the existing accepted movement, then hand over on that exact
+        // fixed step. Planning latency no longer makes a moving start obsolete.
+        public MovementState PredictState(int steps, float deltaTime)
+        {
+            return PredictState(steps, deltaTime, out _);
+        }
+
+        public MovementState PredictState(int steps, float deltaTime, out float routeProgressWorld)
+        {
+            MovementState state = movementState;
+            ShipRouteFollowState follow = routeFollowState;
+            bool stopping = forceStop;
+            bool changed = routeChangedThisFrame;
+            for (int i = 0; i < steps; i++)
+            {
+                MovementCommand command = BuildMovementCommand(state, ref follow, stopping, changed, deltaTime);
+                state = movementModel.Step(state, command, MovementProfile, deltaTime);
+                if (stopping && state.SpeedKnots <= 0.001f && state.VelocityWorld.sqrMagnitude <= 0.000001f)
+                    stopping = false;
+                changed = false;
+            }
+            routeProgressWorld = follow.ProgressWorld;
+            return state;
+        }
+
+        public bool TryScheduleRoute(ShipRoute route, long step)
+        {
+            if (route == null || !route.IsValid || step < SimulationStep) return false;
+            scheduledRoute.CopyFrom(route);
+            scheduledRouteStep = step;
+            ScheduledRouteGeneration++;
+            HasScheduledRoute = true;
+            return true;
+        }
+
+        public void CancelScheduledRoute()
+        {
+            HasScheduledRoute = false;
+            scheduledRoute.Clear();
+        }
 
         public UnitRuntime Runtime { get; private set; }
         public bool IsInitialized => Runtime != null;
@@ -114,19 +162,21 @@ namespace OA.Presentation.Units
 
         public void SetSpeedMode(MovementSpeedMode mode)
         {
+            CancelScheduledRoute();
             speedMode = mode;
         }
 
         public void ToggleSpeedMode()
         {
-            speedMode = speedMode == MovementSpeedMode.Cruise
+            SetSpeedMode(speedMode == MovementSpeedMode.Cruise
                                    ? MovementSpeedMode.Flank
-                                   : MovementSpeedMode.Cruise;
+                                   : MovementSpeedMode.Cruise);
         }
 
         // Explicit stop orders are the one player-driven case allowed to use maximum deceleration.
         public void Stop()
         {
+            CancelScheduledRoute();
             pathPoints.Clear();
             routeFollowState.Reset();
             activeTraversalMask = null;
@@ -137,6 +187,7 @@ namespace OA.Presentation.Units
         // Compatibility route setter for simple callers that do not provide speed-limit data.
         public void SetPath(IReadOnlyList<Vector2> points)
         {
+            CancelScheduledRoute();
             pathPoints.Clear();
             routeFollowState.Reset();
             activeTraversalMask = null;
@@ -180,10 +231,12 @@ namespace OA.Presentation.Units
 
             if (route == null || !route.IsValid || route.ControlPoints.Count < 2)
             {
+                CancelScheduledRoute();
                 return;
             }
 
             pathPoints.AddRange(route.ControlPoints);
+            CancelScheduledRoute();
         }
 
         // True while the ship is still executing a route rather than sitting at final arrival.
@@ -221,7 +274,15 @@ namespace OA.Presentation.Units
                 return;
             }
 
-            MovementCommand command = BuildMovementCommand();
+            if (HasScheduledRoute && SimulationStep >= scheduledRouteStep)
+            {
+                int generation = ScheduledRouteGeneration;
+                SetRoute(scheduledRoute);
+                AppliedRouteGeneration = generation;
+            }
+
+            MovementCommand command = BuildMovementCommand(movementState, ref routeFollowState,
+                forceStop, routeChangedThisFrame, Time.fixedDeltaTime);
 
             movementState = movementModel.Step(
                 movementState,
@@ -230,6 +291,7 @@ namespace OA.Presentation.Units
                 Time.fixedDeltaTime);
 
             ApplyMovementState();
+            SimulationStep++;
 
             if (forceStop &&
                 movementState.SpeedKnots <= 0.001f &&
@@ -243,44 +305,46 @@ namespace OA.Presentation.Units
         }
 
         // Builds a command from route progress, look-ahead guidance, and the active speed intent.
-        private MovementCommand BuildMovementCommand()
+        private MovementCommand BuildMovementCommand(MovementState state,
+            ref ShipRouteFollowState follow, bool stopping, bool changed, float deltaTime)
         {
-            if (forceStop)
+            if (stopping)
             {
-                return MovementCommand.Stop(movementState.Position);
+                return MovementCommand.Stop(state.Position);
             }
 
             if (pathPoints.Count < 2)
             {
-                return MovementCommand.Hold(movementState.Position, routeChangedThisFrame);
+                return MovementCommand.Hold(state.Position, changed);
             }
 
             MovementCommand command = ShipRouteFollower.BuildCommand(
-                movementState,
+                state,
                 pathPoints,
-                ref routeFollowState,
+                ref follow,
                 speedMode,
                 MovementProfile,
                 navigationMap,
                 activeTraversalMask,
                 lookAheadDistance,
                 waypointReachDistance,
-                routeChangedThisFrame,
+                changed,
                 out _);
 
             return ShipRouteFollower.ApplyConfinedPivotIfNeeded(
-                movementState,
+                state,
                 command,
                 waypointReachDistance,
                 MovementProfile,
                 navigationMap,
                 activeTraversalMask,
-                Time.fixedDeltaTime,
+                deltaTime,
                 movementModel);
         }
 
         private void ClearRouteState()
         {
+            CancelScheduledRoute();
             pathPoints.Clear();
             routeFollowState.Reset();
             activeTraversalMask = null;

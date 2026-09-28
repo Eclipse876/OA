@@ -69,12 +69,10 @@ namespace OA.Presentation.Debug
 
         [Header("Prediction Limits")]
         [SerializeField, Min(1f)] private float minimumPredictionTimeBudgetSeconds = 12f;
-        [SerializeField, Min(1f)] private float maximumPredictionTimeBudgetSeconds = 1800f;
         [SerializeField, Min(1f)] private float predictionTimeBudgetMultiplier = 3.5f;
         [SerializeField, Min(0.25f)] private float predictionStagnationSeconds = 10f;
         [SerializeField, Range(1, 4)] private int maximumRecoveryGeometryBases = 1;
-        [SerializeField, Min(0)] private int maxPendingSnapshotRestarts = 1;
-        [SerializeField, Min(0.05f)] private float pendingSnapshotMaxDriftWorld = 1.25f;
+        [SerializeField, Min(0.05f)] private float planningHandoffLeadSeconds = 0.25f;
 
         [Header("Waypoint Safety")]
         [SerializeField, Range(0.02f, 0.4f)] private float finalWaypointSafeOffsetFraction = 0.12f;
@@ -131,6 +129,13 @@ namespace OA.Presentation.Debug
         private bool pendingPlanSilent;
         private bool pendingDirectTested;
         private bool pendingRecoveryQueued;
+        private bool pendingCornerStopQueued;
+        private bool pendingAwaitingHandoff;
+        private int pendingHandoffGeneration;
+        private float pendingHandoffLead;
+        private long pendingHandoffStep;
+        private readonly ShipRoute handoffRoute = new ShipRoute();
+        private RouteGeometryCandidate handoffCandidate;
         private bool pendingGeometryUnavailable;
         private int pendingCandidateIndex;
         private int pendingClearanceAttempt;
@@ -186,6 +191,7 @@ namespace OA.Presentation.Debug
         // Per-frame sandbox loop: input, queued routes, and debug route visuals.
         private void Update()
         {
+            CompleteScheduledRouteHandoff();
             HandleRerollHotkey();
             HandleFastMoveToggle();
             HandleClickToMoveInput();
@@ -194,6 +200,27 @@ namespace OA.Presentation.Debug
             HandleRouteCompletion();
             UpdateActiveRouteLine();
             UpdateWaypointMarkerScales();
+        }
+
+        private void OnDisable()
+        {
+            CancelPendingRoutePlanning();
+        }
+
+        private void CompleteScheduledRouteHandoff()
+        {
+            if (!pendingAwaitingHandoff || shipAgent.HasScheduledRoute) return;
+            if (shipAgent.AppliedRouteGeneration == pendingHandoffGeneration)
+                CommitPendingRoute(handoffRoute, handoffCandidate, true);
+            else
+            {
+                // A stop/warp/external command can cancel a reserved handoff.
+                // Only publish a route that the movement agent actually applied.
+                CancelPendingRoutePlanning();
+                routeWaypoints.Clear();
+                routeWaypoints.AddRange(committedRouteWaypoints);
+                RefreshWaypointMarkers();
+            }
         }
 
         private void OnGUI()
@@ -807,19 +834,26 @@ namespace OA.Presentation.Debug
         {
             EnsureRequiredNavigationProfileApplied();
 
-            if (!IsTraversableForSafety(targetCell))
+            if (!map.TryWorldToCell(GetShipPosition(), out Vector2Int startCell) ||
+                !displayedTraversalMask.TryFindClosestReachableCell(startCell, clickedWorld, out Vector2Int resolvedCell))
             {
-                LogStatus("Selected cell is blocked for the current ship.");
+                LogStatus("The ship has no navigable starting water for its current clearance.");
                 return;
             }
 
-            // Editing an order that is still being evaluated starts from the
-            // route the ship has actually accepted, not from speculative markers.
+            if (resolvedCell != targetCell || !IsTraversableForSafety(targetCell))
+            {
+                LogStatus($"Waypoint moved from {targetCell} to reachable water at {resolvedCell}.");
+                targetCell = resolvedCell;
+                clickedWorld = map.GetWorldCenter(resolvedCell.x, resolvedCell.y);
+            }
+
+            // Rapid Shift-clicks edit the requested queue, including pending orders.
             if (hasPendingPlanning)
             {
-                CancelPendingRoutePlanning();
                 routeWaypoints.Clear();
-                routeWaypoints.AddRange(committedRouteWaypoints);
+                routeWaypoints.AddRange(pendingRouteWaypoints);
+                CancelPendingRoutePlanning();
             }
 
             previousRouteWaypoints.Clear();
@@ -896,8 +930,36 @@ namespace OA.Presentation.Debug
                     pendingRouteWaypoints[finalWaypointIndex],
                     pendingRequiredMask);
 
-            pendingInitialMovementState = shipAgent.CurrentMovementState;
+            if (resetSnapshotRestarts)
+                pendingHandoffLead = Mathf.Max(0.05f, planningHandoffLeadSeconds);
+            bool moving = shipAgent.HasPath() || shipAgent.CurrentMovementState.SpeedKnots > 0.01f;
+            int handoffSteps = moving
+                ? Mathf.CeilToInt(pendingHandoffLead / Mathf.Max(0.005f, Time.fixedDeltaTime)) : 0;
+            pendingHandoffStep = shipAgent.SimulationStep + handoffSteps;
+            pendingInitialMovementState = shipAgent.PredictState(handoffSteps, Time.fixedDeltaTime, out float futureProgress);
             pendingInitialSpeedMode = shipAgent.SpeedMode;
+
+            int alreadyPassed = 0;
+            while (alreadyPassed < pendingRouteWaypoints.Count - 1 &&
+                alreadyPassed < committedRouteWaypoints.Count &&
+                alreadyPassed < acceptedWaypointDistances.Count &&
+                pendingRouteWaypoints[alreadyPassed].World == committedRouteWaypoints[alreadyPassed].World &&
+                futureProgress >= acceptedWaypointDistances[alreadyPassed])
+                alreadyPassed++;
+            if (alreadyPassed > 0) pendingRouteWaypoints.RemoveRange(0, alreadyPassed);
+
+            // Resolve against the actual planned start component as well. A queued
+            // endpoint must not silently move to water disconnected from this route.
+            if (!map.TryWorldToCell(pendingInitialMovementState.Position, out Vector2Int planningStart))
+                return false;
+            for (int i = 0; i < pendingRouteWaypoints.Count; i++)
+            {
+                Waypoint requested = pendingRouteWaypoints[i];
+                if (!pendingRequiredMask.TryFindClosestReachableCell(planningStart, requested.World, out Vector2Int resolved))
+                    return false;
+                if (resolved != requested.Cell)
+                    pendingRouteWaypoints[i] = new Waypoint(resolved, map.GetWorldCenter(resolved.x, resolved.y));
+            }
 
             if (resetSnapshotRestarts)
             {
@@ -908,6 +970,7 @@ namespace OA.Presentation.Debug
             pendingPlanSilent = silent;
             pendingDirectTested = true;
             pendingRecoveryQueued = false;
+            pendingCornerStopQueued = false;
             pendingGeometryUnavailable = false;
             pendingCandidateIndex = 0;
             pendingClearanceAttempt = 0;
@@ -946,12 +1009,17 @@ namespace OA.Presentation.Debug
         // A valid normal route commits immediately; recovery alternatives compare ETA.
         private void AdvancePendingRoutePlanning()
         {
-            if (!hasPendingPlanning)
+            if (!hasPendingPlanning || pendingAwaitingHandoff)
             {
                 return;
             }
 
             pendingPlanFrames++;
+            if (IsPendingSnapshotStale())
+            {
+                RestartStalePendingRoute();
+                return;
+            }
             System.Diagnostics.Stopwatch frameBudget =
                 System.Diagnostics.Stopwatch.StartNew();
 
@@ -977,7 +1045,7 @@ namespace OA.Presentation.Debug
 
                     if (candidateRoute.IsValid)
                     {
-                        if (!completed.IsRecovery)
+                        if (!completed.IsRecovery || completed.StopAtCorners)
                         {
                             CommitPendingRoute(candidateRoute, completed);
                             return;
@@ -1028,6 +1096,17 @@ namespace OA.Presentation.Debug
                     return;
                 }
 
+                if (!pendingCornerStopQueued)
+                {
+                    pendingCornerStopQueued = true;
+                    if (TryBuildFullGeometryRoute(pendingRequiredMask, true))
+                    {
+                        QueueCurrentGeometryCandidate(pendingRequiredMask, 0f, 1f, false, true, false);
+                        pendingCandidates[pendingCandidates.Count - 1].StopAtCorners = true;
+                        continue;
+                    }
+                }
+
                 CompletePendingRouteFailure();
             }
         }
@@ -1053,6 +1132,15 @@ namespace OA.Presentation.Debug
             }
 
             pendingPhysicalCandidates++;
+            if (candidate.StopAtCorners)
+            {
+                for (int i = 1; i < candidateRoute.ControlPoints.Count; i++)
+                {
+                    ShipRoutePoint point = candidateRoute.ControlPoints[i];
+                    point.StopAtPoint = true;
+                    candidateRoute.ControlPoints[i] = point;
+                }
+            }
             pendingPrediction.Begin(
                 candidateRoute,
                 pendingInitialMovementState,
@@ -1097,10 +1185,22 @@ namespace OA.Presentation.Debug
             float optimisticSeconds =
                 routeDistance / Mathf.Max(0.1f, cruiseWorld);
 
-            return Mathf.Clamp(
-                optimisticSeconds * predictionTimeBudgetMultiplier,
-                minimumPredictionTimeBudgetSeconds,
-                maximumPredictionTimeBudgetSeconds);
+            // Include slow terrain and conservative corner stops. A fixed global
+            // ceiling must not turn a long connected route into "unreachable".
+            float maximumCost = 1f;
+            for (int i = 0; i < candidate.Geometry.Count - 1; i++)
+            {
+                float cost = RouteSegmentUtility.GetHighestMoveCostAlongSegment(
+                    map, pendingRequiredMask, candidate.Geometry[i], candidate.Geometry[i + 1]);
+                if (!float.IsInfinity(cost)) maximumCost = Mathf.Max(maximumCost, cost);
+            }
+            float accelerationAllowance = shipAgent.MovementProfile.cruiseSpeedKnots /
+                Mathf.Max(0.001f, Mathf.Min(shipAgent.MovementProfile.accelerationKnotsPerSecond,
+                    shipAgent.MovementProfile.decelerationKnotsPerSecond)) /
+                Mathf.Max(0.001f, shipAgent.MovementProfile.simulationSecondsPerRealSecond);
+            float cornerAllowance = candidate.Geometry.Count * (accelerationAllowance + 10f);
+            return Mathf.Max(minimumPredictionTimeBudgetSeconds,
+                (optimisticSeconds * maximumCost + cornerAllowance) * predictionTimeBudgetMultiplier);
         }
 
         // Adds A* geometry lazily only after a calm direct solution is unavailable
@@ -1334,18 +1434,34 @@ namespace OA.Presentation.Debug
 
         private void CommitPendingRoute(
             ShipRoute route,
-            RouteGeometryCandidate candidate)
+            RouteGeometryCandidate candidate,
+            bool handoffApplied = false)
         {
-            if (IsPendingSnapshotStale())
+            if (!handoffApplied && IsPendingSnapshotStale())
             {
                 RestartStalePendingRoute();
                 return;
             }
 
+            if (!handoffApplied)
+            {
+                handoffRoute.CopyFrom(route);
+                handoffCandidate = candidate;
+                if (!shipAgent.TryScheduleRoute(handoffRoute, System.Math.Max(pendingHandoffStep, shipAgent.SimulationStep)))
+                {
+                    RestartStalePendingRoute();
+                    return;
+                }
+                pendingAwaitingHandoff = true;
+                pendingHandoffGeneration = shipAgent.ScheduledRouteGeneration;
+                return;
+            }
+
+            pendingAwaitingHandoff = false;
+
             pendingPlanningStopwatch?.Stop();
             activeRoute.CopyFrom(route);
             activeRouteVisibleSampleIndex = 0;
-            shipAgent.SetRoute(activeRoute);
             activeRouteLine?.Draw(
                 activeRoute.PredictedSamples,
                 shipAgent.MovementProfile.cruiseSpeedKnots,
@@ -1376,6 +1492,7 @@ namespace OA.Presentation.Debug
                     $"AStarLegs={pendingAStarLegs}. " +
                     $"PhysicalCandidates={pendingPhysicalCandidates}. " +
                     $"PhysicalSteps={pendingPhysicalSteps}. " +
+                    $"CornerStops={candidate.StopAtCorners}. HandoffRestarts={pendingSnapshotRestarts}. " +
                     $"MaskCacheHits={pathService.TraversalMaskCacheHits - pendingMaskHitsAtStart}. " +
                     $"MaskCacheMisses={pathService.TraversalMaskCacheMisses - pendingMaskMissesAtStart}. " +
                     $"RenderBuildTime={activeRouteLine?.LastBuildMilliseconds ?? 0d:F2}ms.");
@@ -1389,33 +1506,19 @@ namespace OA.Presentation.Debug
 
         private bool IsPendingSnapshotStale()
         {
-            float drift = Vector2.Distance(
-                GetShipPosition(),
-                pendingInitialMovementState.Position);
-
-            return drift > pendingSnapshotMaxDriftWorld;
+            // A stationary start remains usable indefinitely. Moving starts are
+            // reserved by fixed-step number, not an arbitrary distance tolerance.
+            return shipAgent.SimulationStep > pendingHandoffStep &&
+                (shipAgent.CurrentMovementState.Position - pendingInitialMovementState.Position).sqrMagnitude > 0.000001f;
         }
 
-        // A pending plan is predicted from one exact ship state. If the ship
-        // keeps moving long enough that this state is obsolete, discard the
-        // candidate and rerun once from the current state instead of snapping the
-        // ship onto an old route.
+        // If planning misses its reserved step, allow more lead time and predict
+        // a later handoff on the same accepted course. Keep the requested order.
         private void RestartStalePendingRoute()
         {
-            if (pendingSnapshotRestarts >= maxPendingSnapshotRestarts)
-            {
-                pendingLastFailureReason = ShipRouteFailureReason.StalePlanningSnapshot;
-                pendingLastFailurePosition = GetShipPosition();
-                pendingLastFailureTimeSeconds =
-                    pendingPlanningStopwatch != null
-                        ? (float)pendingPlanningStopwatch.Elapsed.TotalSeconds
-                        : 0f;
-
-                CompletePendingRouteFailure();
-                return;
-            }
-
             pendingSnapshotRestarts++;
+            pendingHandoffLead = Mathf.Max(pendingHandoffLead * 2f,
+                (float)(pendingPlanningStopwatch?.Elapsed.TotalSeconds ?? 0d) * 2f + 0.1f);
             routeWaypoints.Clear();
             routeWaypoints.AddRange(pendingRouteWaypoints);
             TryRouteThroughWaypoints(pendingPlanSilent, false);
@@ -1457,6 +1560,8 @@ namespace OA.Presentation.Debug
 
         private void CancelPendingRoutePlanning()
         {
+            shipAgent?.CancelScheduledRoute();
+            pendingAwaitingHandoff = false;
             if (hasPendingPlanning)
             {
                 pendingPlanningStopwatch?.Stop();
@@ -1635,7 +1740,7 @@ namespace OA.Presentation.Debug
             acceptedWaypointDistances.Clear();
             activeRoute.Clear();
             activeRouteVisibleSampleIndex = 0;
-            candidateRoute.Clear();
+            if (!hasPendingPlanning) candidateRoute.Clear();
             activeRouteLine?.Clear();
 
             if (!hasPendingPlanning)
@@ -1654,7 +1759,7 @@ namespace OA.Presentation.Debug
         // the ship back through waypoints it already completed.
         private void RetirePassedWaypoints()
         {
-            if (!shipAgent.HasPath() ||
+            if (hasPendingPlanning || !shipAgent.HasPath() ||
                 routeWaypoints.Count <= 1 ||
                 acceptedWaypointDistances.Count != routeWaypoints.Count)
             {
@@ -2181,6 +2286,7 @@ namespace OA.Presentation.Debug
         // physical predictions are advanced over subsequent frames.
         private sealed class RouteGeometryCandidate
         {
+            public bool StopAtCorners;
             public readonly List<Vector2> Geometry = new List<Vector2>(512);
             public readonly List<float> WaypointDistances = new List<float>(32);
 
