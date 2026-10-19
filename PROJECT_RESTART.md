@@ -1,6 +1,6 @@
 # OA restart guide
 
-Navigation follow-up: see [the September 27 routing update](NAVIGATION_ROUTING.md) for the implemented destination snapping, moving handoff, and regression checks. The assessment below describes the September 23 baseline.
+Navigation follow-up: see [the routing update](NAVIGATION_ROUTING.md) for the implemented destination snapping, moving handoff, October 19 performance work, and regression checks. The assessment below describes the September 23 baseline unless a newer note says otherwise.
 
 Reviewed 2026-09-23 against the working tree, Git history, scene/asset references, and the running Unity editor. This is a status assessment and proposed roadmap; the navigation and new movement systems below have not been implemented in this review.
 
@@ -35,7 +35,7 @@ There were already hundreds of working-tree changes, mainly Terrain Grid System 
 | Aircraft | F-14 textures, model/animation assets and animator controller exist. No aircraft movement controller was found. |
 | Submarines | No submarine movement/depth-state implementation. Water depth categories and surface-ship draft rules are foundations, not diving behavior. |
 | Combat, sensors, logistics, AI | Mostly folder scaffolding. Several UI classes are empty placeholders. |
-| Tests/build | Four authored EditMode tests cover basic hex lookup/neighbors and map generation. No authored PlayMode test cases were found. Build Settings currently enables SampleScene, not PathfindingTesting. |
+| Tests/build | Seventeen authored EditMode navigation cases now cover lookup, reachability, smoothing, long prediction, moving handoff, cancellation, and production-scale sequential orders. Build Settings launches PathfindingTesting. A Windows x64 build and headless startup smoke test pass. No authored PlayMode test cases were found. |
 
 The A* Pathfinding Project package, `AStarHexPathService`, Terrain Grid System, and its presenter remain in the project. Their presence does not mean the active sandbox routes through them. Avoid spending the first restart session tuning the inactive adapter.
 

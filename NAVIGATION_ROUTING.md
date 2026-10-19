@@ -1,5 +1,24 @@
 # Navigation reliability update — 2026-09-27
 
+## Performance update — 2026-10-19
+
+Long-range planning is now consistently subsecond on the production 1000 × 500 generated-map regression. Seven successive moving orders, including a corner-to-corner route and a land click, complete with zero handoff restarts. Reserved handoff lead is 0.26–0.50 seconds for the representative routes and 0.58 seconds for the extreme corner-to-corner route.
+
+The original delay was not primarily raw A*. Exact whole-route motion prediction, repeated long-segment smoothing, full-mask destination scans, and missed 0.25-second handoffs compounded into the observed 0.25 → 0.6 → 1.5 second retry staircase. The current implementation:
+
+- caches repeated world-to-cell lookup work and starts speed-constraint scans near current route progress;
+- uses adaptive fixed-step handoff reservations and preserves whole-order diagnostics across retries;
+- replaces the smoother's pathological all-candidate backward search with recursive legal-segment reduction followed by a small quality-restoring cleanup pass;
+- returns ordinary same-component water destinations directly, retaining the full nearest-reachable scan for land and disconnected water;
+- reuses A* world-center values inside the expansion loop; and
+- budgets 10 ms per frame for prediction and estimates 200,000 prediction steps per planning second for the initial handoff.
+
+The EditMode navigation suite now has 17 passing cases. On the exact production-scale generated map, measured planning CPU ranges from roughly 79 to 432 ms; the worst route is approximately 233 ms prediction, 128 ms A*, and 63 ms smoothing. The Windows x64 player builds successfully with `PathfindingTesting` as its startup scene and completes a headless startup smoke test.
+
+Remaining boundary: A* and smoothing are still synchronous, so a difficult global search can still create a single-frame spike even though end-to-end order latency is now subsecond. Whole-route physical prediction remains intentionally exact and is the largest cost on unobstructed map-spanning trips.
+
+## Reliability baseline — 2026-09-27
+
 The supplied test log contained seven stale-start rejections and one predicted-track collision. The successful orders in that log show that geometric reachability alone was not the main failure: several valid physical routes were discarded after the moving ship outpaced their starting snapshot.
 
 ## Player-facing behavior
