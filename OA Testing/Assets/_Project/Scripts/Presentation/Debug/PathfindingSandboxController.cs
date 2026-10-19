@@ -128,6 +128,10 @@ namespace OA.Presentation.Debug
         private System.Diagnostics.Stopwatch pendingPlanningStopwatch;
         private System.Diagnostics.Stopwatch pendingAttemptStopwatch;
         private double pendingPlanningCpuMilliseconds;
+        private double pendingPredictionCpuMilliseconds;
+        private double pendingEndpointCpuMilliseconds;
+        private double pendingAStarCpuMilliseconds;
+        private double pendingSmoothingCpuMilliseconds;
         private double pendingPlanReadyWallMilliseconds;
         private bool hasPendingPlanning;
         private bool pendingPlanSilent;
@@ -919,6 +923,10 @@ namespace OA.Presentation.Debug
             {
                 pendingPlanningStopwatch = System.Diagnostics.Stopwatch.StartNew();
                 pendingPlanningCpuMilliseconds = 0d;
+                pendingPredictionCpuMilliseconds = 0d;
+                pendingEndpointCpuMilliseconds = 0d;
+                pendingAStarCpuMilliseconds = 0d;
+                pendingSmoothingCpuMilliseconds = 0d;
                 pendingPlanReadyWallMilliseconds = 0d;
                 pendingSnapshotRestarts = 0;
                 pendingPhysicalCandidates = 0;
@@ -997,12 +1005,18 @@ namespace OA.Presentation.Debug
             for (int i = 0; i < pendingRouteWaypoints.Count; i++)
             {
                 Waypoint requested = pendingRouteWaypoints[i];
+                long endpointStartTimestamp =
+                    System.Diagnostics.Stopwatch.GetTimestamp();
                 if (!pendingRequiredMask.TryFindClosestReachableCell(planningStart, requested.World, out Vector2Int resolved))
                 {
+                    pendingEndpointCpuMilliseconds += ElapsedMilliseconds(
+                        endpointStartTimestamp);
                     CompletePlanningCpuSample(setupCpu);
                     pendingPlanningStopwatch?.Stop();
                     return false;
                 }
+                pendingEndpointCpuMilliseconds += ElapsedMilliseconds(
+                    endpointStartTimestamp);
                 if (resolved != requested.Cell)
                     pendingRouteWaypoints[i] = new Waypoint(resolved, map.GetWorldCenter(resolved.x, resolved.y));
             }
@@ -1066,8 +1080,14 @@ namespace OA.Presentation.Debug
                     if (pendingPrediction.IsRunning)
                     {
                         int startSteps = pendingPrediction.StepsExecuted;
+                        long predictionStartTimestamp =
+                            System.Diagnostics.Stopwatch.GetTimestamp();
                         pendingPrediction.Advance(
                             Mathf.Max(1, predictionStepsPerPlanningSlice));
+                        pendingPredictionCpuMilliseconds +=
+                            (System.Diagnostics.Stopwatch.GetTimestamp() -
+                             predictionStartTimestamp) * 1000d /
+                            System.Diagnostics.Stopwatch.Frequency;
                         pendingPhysicalSteps +=
                             pendingPrediction.StepsExecuted - startSteps;
 
@@ -1513,6 +1533,10 @@ namespace OA.Presentation.Debug
                     $"Distance={activeRoute.TotalDistanceWorld:F2}. " +
                     $"PlanReadyWallTime={pendingPlanReadyWallMilliseconds:F2}ms. " +
                     $"PlanningCpuTime={pendingPlanningCpuMilliseconds:F2}ms. " +
+                    $"PredictionCpuTime={pendingPredictionCpuMilliseconds:F2}ms. " +
+                    $"EndpointCpuTime={pendingEndpointCpuMilliseconds:F2}ms. " +
+                    $"AStarCpuTime={pendingAStarCpuMilliseconds:F2}ms. " +
+                    $"SmoothingCpuTime={pendingSmoothingCpuMilliseconds:F2}ms. " +
                     $"HandoffWaitTime={handoffWaitMilliseconds:F2}ms. " +
                     $"InputToAppliedWallTime={inputToAppliedMilliseconds:F2}ms. " +
                     $"PlanFrames={pendingPlanFrames}. " +
@@ -1543,6 +1567,12 @@ namespace OA.Presentation.Debug
 
             sample.Stop();
             pendingPlanningCpuMilliseconds += sample.Elapsed.TotalMilliseconds;
+        }
+
+        private static double ElapsedMilliseconds(long startTimestamp)
+        {
+            return (System.Diagnostics.Stopwatch.GetTimestamp() - startTimestamp) *
+                1000d / System.Diagnostics.Stopwatch.Frequency;
         }
 
         private int EstimatePhysicalPredictionSteps(
@@ -1670,6 +1700,7 @@ namespace OA.Presentation.Debug
                     reason +
                     $" InputToFailureWallTime={pendingPlanningStopwatch.Elapsed.TotalMilliseconds:F2}ms. " +
                     $"PlanningCpuTime={pendingPlanningCpuMilliseconds:F2}ms. " +
+                    $"PredictionCpuTime={pendingPredictionCpuMilliseconds:F2}ms. " +
                     $"PlanFrames={pendingPlanFrames}. " +
                     $"AStarLegs={pendingAStarLegs}. " +
                     $"PhysicalCandidates={pendingPhysicalCandidates}. " +
@@ -1777,11 +1808,15 @@ namespace OA.Presentation.Debug
                     planningMask);
 
                 pendingAStarLegs++;
+                long pathStartTimestamp =
+                    System.Diagnostics.Stopwatch.GetTimestamp();
                 bool foundPath = pathService.TryFindPath(
                     legStartCell,
                     legGoalCell,
                     planningMask,
                     cellPath);
+                pendingAStarCpuMilliseconds += ElapsedMilliseconds(
+                    pathStartTimestamp);
                 if (!foundPath || cellPath.Count == 0)
                 {
                     if (!silent)
@@ -1792,6 +1827,8 @@ namespace OA.Presentation.Debug
                     return false;
                 }
 
+                long smoothingStartTimestamp =
+                    System.Diagnostics.Stopwatch.GetTimestamp();
                 PathRouteSmoother.BuildRoute(
                     map,
                     planningMask,
@@ -1800,6 +1837,8 @@ namespace OA.Presentation.Debug
                     waypoint.World,
                     worldPath,
                     routeCandidates);
+                pendingSmoothingCpuMilliseconds += ElapsedMilliseconds(
+                    smoothingStartTimestamp);
 
                 if (worldPath.Count < 2)
                 {

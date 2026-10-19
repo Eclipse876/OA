@@ -372,7 +372,9 @@ namespace OA.Simulation.Navigation
                 float distanceSqr =
                     (worldCenters[index] - worldPosition).sqrMagnitude;
 
-                if (distanceSqr < bestDistanceSqr)
+                if (distanceSqr < bestDistanceSqr ||
+                    (distanceSqr.Equals(bestDistanceSqr) &&
+                     (bestIndex < 0 || index < bestIndex)))
                 {
                     bestDistanceSqr = distanceSqr;
                     bestIndex = index;

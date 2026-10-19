@@ -1,7 +1,3 @@
-// PathRouteSmoother.cs:
-// A* gives us polite cell-by-cell breadcrumbs. This file tries to turn those
-// breadcrumbs into a route the ship can follow without zig-zagging like that web
-// from a spider on caffine.
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -50,37 +46,14 @@ namespace OA.Simulation.Navigation
             scratchCandidates.Add(finalDestination);
 
             routeOut.Add(startWorld);
-
-            // Greedy shortcut pass: from each anchor, try the destination first
-            // and walk backward only when terrain blocks the longer jump.
-            int anchor = 0;
-            while (anchor < scratchCandidates.Count - 1)
-            {
-                int farthestReachable = anchor + 1;
-                for (int candidate = scratchCandidates.Count - 1;
-                     candidate > anchor;
-                     candidate--)
-                {
-                    if (RouteSegmentUtility.IsSegmentTraversable(
-                        map,
-                        mask,
-                        scratchCandidates[anchor],
-                        scratchCandidates[candidate]))
-                    {
-                        farthestReachable = candidate;
-                        break;
-                    }
-                }
-
-                Vector2 point = scratchCandidates[farthestReachable];
-
-                if (Vector2.Distance(routeOut[routeOut.Count - 1], point) > 0.0005f)
-                {
-                    routeOut.Add(point);
-                }
-
-                anchor = farthestReachable;
-            }
+            AppendSimplifiedRange(
+                map,
+                mask,
+                scratchCandidates,
+                0,
+                scratchCandidates.Count - 1,
+                routeOut);
+            RemoveRedundantWaypoints(map, mask, routeOut);
 
             // Emergency fallback so callers always get at least a start/end line.
             if (routeOut.Count < 2)
@@ -89,6 +62,103 @@ namespace OA.Simulation.Navigation
                 routeOut.Add(startWorld);
                 routeOut.Add(finalDestination);
             }
+        }
+
+        // The recursive pass normally leaves only a handful of points. A final
+        // greedy pass over that small list recovers shortcuts that cross a split
+        // boundary without returning to the original all-cells search cost.
+        private static void RemoveRedundantWaypoints(
+            HexMapRuntime map,
+            NavigationTraversalMask mask,
+            List<Vector2> route)
+        {
+            int sourceCount = route.Count;
+            if (sourceCount <= 2)
+            {
+                return;
+            }
+
+            int anchor = 0;
+            int writeIndex = 1;
+
+            while (anchor < sourceCount - 1)
+            {
+                int farthestReachable = anchor + 1;
+
+                for (int candidate = sourceCount - 1;
+                     candidate > anchor;
+                     candidate--)
+                {
+                    if (RouteSegmentUtility.IsSegmentTraversable(
+                        map,
+                        mask,
+                        route[anchor],
+                        route[candidate]))
+                    {
+                        farthestReachable = candidate;
+                        break;
+                    }
+                }
+
+                route[writeIndex++] = route[farthestReachable];
+                anchor = farthestReachable;
+            }
+
+            if (writeIndex < route.Count)
+            {
+                route.RemoveRange(writeIndex, route.Count - writeIndex);
+            }
+        }
+
+        // Recursively accepts the longest segment in each half that is known to
+        // be legal. The old destination-backward scan repeatedly sampled almost
+        // the whole route for every candidate and became cubic on long paths.
+        private static void AppendSimplifiedRange(
+            HexMapRuntime map,
+            NavigationTraversalMask mask,
+            IReadOnlyList<Vector2> candidates,
+            int startIndex,
+            int endIndex,
+            List<Vector2> routeOut)
+        {
+            if (endIndex <= startIndex)
+            {
+                return;
+            }
+
+            if (endIndex == startIndex + 1 ||
+                RouteSegmentUtility.IsSegmentTraversable(
+                    map,
+                    mask,
+                    candidates[startIndex],
+                    candidates[endIndex]))
+            {
+                Vector2 point = candidates[endIndex];
+                if (Vector2.Distance(
+                    routeOut[routeOut.Count - 1],
+                    point) > 0.0005f)
+                {
+                    routeOut.Add(point);
+                }
+
+                return;
+            }
+
+            int midpoint = startIndex + (endIndex - startIndex) / 2;
+            AppendSimplifiedRange(
+                map,
+                mask,
+                candidates,
+                startIndex,
+                midpoint,
+                routeOut);
+            AppendSimplifiedRange(
+                map,
+                mask,
+                candidates,
+                midpoint,
+                endIndex,
+                routeOut);
         }
 
         // Pulls a point back toward the cell center so final destinations stay inside their hex.

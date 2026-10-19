@@ -28,6 +28,17 @@ namespace OA.Simulation.Navigation
 
             EnsureRegions();
             int region = regions[Map.GetIndex(start.x, start.y)];
+
+            // The nearest map cell is also the nearest reachable cell when it
+            // belongs to the start component. Most water clicks take this path;
+            // blocked or disconnected clicks retain the full fallback search.
+            if (Map.TryWorldToCell(requestedWorld, out Vector2Int nearest) &&
+                regions[Map.GetIndex(nearest.x, nearest.y)] == region)
+            {
+                destination = nearest;
+                return true;
+            }
+
             float bestDistance = float.PositiveInfinity;
             int bestIndex = -1;
             for (int index = 0; index < regions.Length; index++)

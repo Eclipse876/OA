@@ -63,22 +63,50 @@ public sealed class NavigationOrderTests
         };
 
         Vector2 previous = map.GetWorldCenter(2, 2) + new Vector2(0.31f, 0.47f);
+        AssertSequentialLookupsMatchScan(map, previous, targets);
 
-        foreach (Vector2 target in targets)
+        var irregularMap = new HexMapRuntime(31, 21, 19.5f);
+        for (int y = 0; y < irregularMap.Height; y++)
         {
-            int steps = Mathf.CeilToInt(
-                Vector2.Distance(previous, target) / (map.CellSize * 0.35f));
-
-            for (int step = 0; step <= steps; step++)
+            for (int x = 0; x < irregularMap.Width; x++)
             {
-                Vector2 query = Vector2.Lerp(previous, target, step / (float)steps);
-                Vector2Int expected = FindClosestCellByScan(map, query);
-                Assert.IsTrue(map.TryWorldToCell(query, out Vector2Int actual));
-                Assert.AreEqual(expected, actual, $"Incorrect cell at {query}");
+                Vector2 regular = new Vector2(
+                    (x + (y % 2) * 0.5f) * irregularMap.CellSize,
+                    y * irregularMap.CellSize * 0.8660254f);
+                float phase = x * 17.13f + y * 31.71f;
+                Vector2 jitter = new Vector2(
+                    Mathf.Sin(phase) * irregularMap.CellSize * 0.12f,
+                    Mathf.Cos(phase * 0.73f) * irregularMap.CellSize * 0.12f);
+                irregularMap.SetWorldCenter(x, y, regular + jitter);
             }
-
-            previous = target;
         }
+        irregularMap.MarkWorldCentersReady();
+
+        Vector2[] irregularTargets =
+        {
+            irregularMap.GetWorldCenter(27, 17) + new Vector2(1.11f, -0.73f),
+            irregularMap.GetWorldCenter(5, 18) + new Vector2(-0.93f, 0.57f),
+            irregularMap.GetWorldCenter(24, 3) + new Vector2(0.49f, 1.37f)
+        };
+        AssertSequentialLookupsMatchScan(
+            irregularMap,
+            irregularMap.GetWorldCenter(2, 2) + new Vector2(0.27f, -0.39f),
+            irregularTargets);
+    }
+
+    [Test]
+    public void WorldToCell_EqualDistanceTieUsesLowestCellIndex()
+    {
+        var map = new HexMapRuntime(4, 4, 1f);
+        for (int y = 0; y < map.Height; y++)
+            for (int x = 0; x < map.Width; x++)
+                map.SetWorldCenter(x, y, new Vector2(100f + x, 100f + y));
+        map.SetWorldCenter(0, 0, new Vector2(-1f, 0f));
+        map.SetWorldCenter(1, 0, new Vector2(1f, 0f));
+        map.MarkWorldCentersReady();
+
+        Assert.IsTrue(map.TryWorldToCell(Vector2.zero, out Vector2Int cell));
+        Assert.AreEqual(new Vector2Int(0, 0), cell);
     }
 
     [Test]
@@ -155,6 +183,23 @@ public sealed class NavigationOrderTests
     }
 
     [Test]
+    public void Destination_OrdinaryWaterReturnsNearestReachableCell()
+    {
+        var map = Map();
+        var service = Service(map);
+        var mask = service.GetTraversalMask(
+            map,
+            new NavigationProfile(0f, ShipDraftClass.Shallow));
+        Vector2 requested = map.GetWorldCenter(18, 11) + new Vector2(1.25f, -0.75f);
+
+        Assert.IsTrue(mask.TryFindClosestReachableCell(
+            new Vector2Int(2, 8),
+            requested,
+            out Vector2Int destination));
+        Assert.AreEqual(FindClosestCellByScan(map, requested), destination);
+    }
+
+    [Test]
     public void Destination_RejectsInvalidStartAndStaleMask_WithoutInventingACell()
     {
         var map = Map();
@@ -213,6 +258,48 @@ public sealed class NavigationOrderTests
         Assert.IsTrue(route.IsValid, $"{route.FailureReason} at {route.FailurePosition}");
         Assert.Less(Vector2.Distance(route.PredictedSamples[route.PredictedSamples.Count - 1].Position,
             geometry[geometry.Count - 1]), 0.91f);
+    }
+
+    [Test]
+    public void RouteSmoother_ProducesOnlyTraversableShortcutsAroundBarrier()
+    {
+        var map = Map(100, 40, 8f);
+        for (int y = 4; y < map.Height; y++)
+            map.SetBlocked(50, y, true);
+
+        var service = Service(map);
+        var mask = service.GetTraversalMask(
+            map,
+            new NavigationProfile(0f, ShipDraftClass.Shallow));
+        Vector2Int startCell = new Vector2Int(5, 20);
+        Vector2Int goalCell = new Vector2Int(95, 20);
+        var cells = new List<Vector2Int>();
+        Assert.IsTrue(service.TryFindPath(startCell, goalCell, mask, cells));
+
+        Vector2 start = map.GetWorldCenter(startCell.x, startCell.y);
+        Vector2 goal = map.GetWorldCenter(goalCell.x, goalCell.y);
+        var route = new List<Vector2>();
+        var scratch = new List<Vector2>();
+        PathRouteSmoother.BuildRoute(
+            map,
+            mask,
+            cells,
+            start,
+            goal,
+            route,
+            scratch);
+
+        Assert.GreaterOrEqual(route.Count, 2);
+        Assert.Less(route.Count, cells.Count);
+        Assert.AreEqual(start, route[0]);
+        Assert.AreEqual(goal, route[route.Count - 1]);
+        for (int i = 1; i < route.Count; i++)
+            Assert.IsTrue(RouteSegmentUtility.IsSegmentTraversable(
+                map,
+                mask,
+                route[i - 1],
+                route[i]),
+                $"Illegal shortcut at segment {i - 1}.");
     }
 
     private ShipNavigationAgent Agent(HexMapRuntime map)
@@ -305,6 +392,30 @@ public sealed class NavigationOrderTests
         }
 
         return best;
+    }
+
+    private static void AssertSequentialLookupsMatchScan(
+        HexMapRuntime map,
+        Vector2 start,
+        IReadOnlyList<Vector2> targets)
+    {
+        Vector2 previous = start;
+
+        foreach (Vector2 target in targets)
+        {
+            int steps = Mathf.CeilToInt(
+                Vector2.Distance(previous, target) / (map.CellSize * 0.35f));
+
+            for (int step = 0; step <= steps; step++)
+            {
+                Vector2 query = Vector2.Lerp(previous, target, step / (float)steps);
+                Vector2Int expected = FindClosestCellByScan(map, query);
+                Assert.IsTrue(map.TryWorldToCell(query, out Vector2Int actual));
+                Assert.AreEqual(expected, actual, $"Incorrect cell at {query}");
+            }
+
+            previous = target;
+        }
     }
 
     [Test]
@@ -430,7 +541,14 @@ public sealed class NavigationOrderTests
                 $"steps={Get<int>(controller, "pendingPhysicalSteps")}, " +
                 $"restarts={Get<int>(controller, "pendingSnapshotRestarts")}, " +
                 $"lead={Get<float>(controller, "pendingHandoffLead"):F3}s, " +
-                $"cpu={Get<double>(controller, "pendingPlanningCpuMilliseconds"):F2}ms");
+                $"cpu={Get<double>(controller, "pendingPlanningCpuMilliseconds"):F2}ms, " +
+                $"predictionCpu={Get<double>(controller, "pendingPredictionCpuMilliseconds"):F2}ms, " +
+                $"endpointCpu={Get<double>(controller, "pendingEndpointCpuMilliseconds"):F2}ms, " +
+                $"aStarCpu={Get<double>(controller, "pendingAStarCpuMilliseconds"):F2}ms, " +
+                $"smoothingCpu={Get<double>(controller, "pendingSmoothingCpuMilliseconds"):F2}ms, " +
+                $"cells={Get<System.Collections.IList>(controller, "cellPath").Count}, " +
+                $"geometry={Get<System.Collections.IList>(controller, "fullWorldPath").Count}, " +
+                $"guidance={Get<ShipRoute>(controller, "activeRoute").ControlPoints.Count}");
         }
     }
 

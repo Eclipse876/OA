@@ -189,6 +189,7 @@ namespace OA.Simulation.Navigation
 
             int startIndex = activeMap.GetIndex(start.x, start.y);
             int goalIndex = activeMap.GetIndex(goal.x, goal.y);
+            Vector2 goalWorld = activeMap.GetWorldCenter(goal.x, goal.y);
 
             if (startIndex == goalIndex)
             {
@@ -203,7 +204,10 @@ namespace OA.Simulation.Navigation
             searchVersionByCell[startIndex] = searchVersion;
 
             openHeap.Clear();
-            openHeap.Push(startIndex, CalculateHeuristic(start, goal));
+            float startHeuristic = Vector2.Distance(
+                activeMap.GetWorldCenter(start.x, start.y),
+                goalWorld);
+            openHeap.Push(startIndex, startHeuristic);
 
             while (openHeap.Count > 0)
             {
@@ -224,7 +228,7 @@ namespace OA.Simulation.Navigation
 
                 VisitNeighbors(
                     currentIndex,
-                    goal,
+                    goalWorld,
                     mask);
             }
 
@@ -252,10 +256,13 @@ namespace OA.Simulation.Navigation
         // distance already traveled + cost to enter that neighbor + estimate to goal.
         private void VisitNeighbors(
             int currentIndex,
-            Vector2Int goal,
+            Vector2 goalWorld,
             NavigationTraversalMask mask)
         {
             Vector2Int current = IndexToCell(currentIndex);
+            Vector2 currentWorld = activeMap.GetWorldCenter(
+                current.x,
+                current.y);
             int neighborCount = activeMap.GetNeighborCount(
                 current.x,
                 current.y,
@@ -277,9 +284,17 @@ namespace OA.Simulation.Navigation
                     continue;
                 }
 
-                float tentativeScore =
-                    gScore[currentIndex] +
-                    CalculateTraversalCost(current, neighbor, mask);
+                Vector2 neighborWorld = activeMap.GetWorldCenter(
+                    neighbor.x,
+                    neighbor.y);
+                float moveCost = NavigationTerrainRules.GetTraversalCostMultiplier(
+                    activeMap,
+                    neighbor.x,
+                    neighbor.y,
+                    mask.Profile.DraftClass);
+                float tentativeScore = gScore[currentIndex] +
+                    Vector2.Distance(currentWorld, neighborWorld) *
+                    Mathf.Max(1f, moveCost);
 
                 if (searchVersionByCell[neighborIndex] == searchVersion &&
                     tentativeScore >= gScore[neighborIndex])
@@ -291,9 +306,8 @@ namespace OA.Simulation.Navigation
                 cameFrom[neighborIndex] = currentIndex;
                 gScore[neighborIndex] = tentativeScore;
 
-                float priority =
-                    tentativeScore +
-                    CalculateHeuristic(neighbor, goal);
+                float priority = tentativeScore +
+                    Vector2.Distance(neighborWorld, goalWorld);
 
                 openHeap.Push(neighborIndex, priority);
             }
@@ -330,36 +344,6 @@ namespace OA.Simulation.Navigation
                 System.Array.Clear(closedVersionByCell, 0, closedVersionByCell.Length);
                 searchVersion = 1;
             }
-        }
-
-        // Cost to enter a neighboring cell. Rough water raises move cost, so A*
-        // naturally prefers calmer water when the detour is worth it.
-        private float CalculateTraversalCost(
-            Vector2Int from,
-            Vector2Int to,
-            NavigationTraversalMask mask)
-        {
-            Vector2 fromWorld = activeMap.GetWorldCenter(from.x, from.y);
-            Vector2 toWorld = activeMap.GetWorldCenter(to.x, to.y);
-
-            float distance = Vector2.Distance(fromWorld, toWorld);
-            float moveCost = NavigationTerrainRules.GetTraversalCostMultiplier(
-                activeMap,
-                to.x,
-                to.y,
-                mask.Profile.DraftClass);
-
-            return distance * Mathf.Max(1f, moveCost);
-        }
-
-        // Straight-line estimate to the goal. This is optimistic because it
-        // ignores obstacles, which is exactly what A* wants from a heuristic.
-        private float CalculateHeuristic(Vector2Int from, Vector2Int goal)
-        {
-            Vector2 fromWorld = activeMap.GetWorldCenter(from.x, from.y);
-            Vector2 goalWorld = activeMap.GetWorldCenter(goal.x, goal.y);
-
-            return Vector2.Distance(fromWorld, goalWorld);
         }
 
         // Once A* reaches the goal, walk backward through cameFrom and flip the
