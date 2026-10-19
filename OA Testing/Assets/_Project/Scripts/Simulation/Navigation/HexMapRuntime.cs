@@ -22,9 +22,15 @@ namespace OA.Simulation.Navigation
         // The brute-force fallback remains available for unusual off-map queries.
         private readonly Dictionary<Vector2Int, List<int>> worldCenterBuckets =
             new Dictionary<Vector2Int, List<int>>();
+        private readonly List<int> cachedWorldCenterCandidates = new List<int>(64);
 
         private float worldCenterBucketSize;
         private bool hasWorldCenters;
+        private bool hasLastWorldToCellQuery;
+        private Vector2 lastWorldToCellPosition;
+        private int lastWorldToCellIndex = -1;
+        private bool hasCachedWorldCenterBucket;
+        private Vector2Int cachedWorldCenterBucket;
 
         // Read-only map shape. Resize by making a new runtime map.
         public int Width { get; }
@@ -290,14 +296,34 @@ namespace OA.Simulation.Navigation
                 return false;
             }
 
-            if (TryWorldToCellFromBuckets(worldPosition, out cell))
+            if (hasLastWorldToCellQuery &&
+                worldPosition.x.Equals(lastWorldToCellPosition.x) &&
+                worldPosition.y.Equals(lastWorldToCellPosition.y))
             {
+                cell = new Vector2Int(
+                    lastWorldToCellIndex % Width,
+                    lastWorldToCellIndex / Width);
+                return true;
+            }
+
+            int cellIndex;
+
+            if (TryWorldToCellFromBuckets(worldPosition, out cell, out cellIndex))
+            {
+                CacheWorldToCellQuery(worldPosition, cellIndex);
                 return true;
             }
 
             // Queries far outside the map are rare. Preserve the former nearest-cell
             // behavior as a fallback without charging this cost to every prediction sample.
-            return TryWorldToCellBruteForce(worldPosition, out cell);
+            bool found = TryWorldToCellBruteForce(worldPosition, out cell, out cellIndex);
+
+            if (found)
+            {
+                CacheWorldToCellQuery(worldPosition, cellIndex);
+            }
+
+            return found;
         }
 
         // Builds a lightweight spatial index after the visible Tilemap centers are cached.
@@ -305,6 +331,10 @@ namespace OA.Simulation.Navigation
         {
             worldCenterBuckets.Clear();
             worldCenterBucketSize = Mathf.Max(0.05f, CellSize);
+            hasLastWorldToCellQuery = false;
+            lastWorldToCellIndex = -1;
+            hasCachedWorldCenterBucket = false;
+            cachedWorldCenterCandidates.Clear();
 
             for (int i = 0; i < worldCenters.Length; i++)
             {
@@ -323,14 +353,50 @@ namespace OA.Simulation.Navigation
         // Checks only nearby buckets during normal in-map movement and route prediction.
         private bool TryWorldToCellFromBuckets(
             Vector2 worldPosition,
-            out Vector2Int cell)
+            out Vector2Int cell,
+            out int cellIndex)
         {
             Vector2Int centerBucket = GetWorldCenterBucket(worldPosition);
             float bestDistanceSqr = float.PositiveInfinity;
             int bestIndex = -1;
 
-            // A two-bucket margin is deliberately generous for hex row offsets
-            // and keeps prediction robust near tile edges.
+            if (!hasCachedWorldCenterBucket ||
+                centerBucket != cachedWorldCenterBucket)
+            {
+                RefreshWorldCenterCandidates(centerBucket);
+            }
+
+            for (int i = 0; i < cachedWorldCenterCandidates.Count; i++)
+            {
+                int index = cachedWorldCenterCandidates[i];
+                float distanceSqr =
+                    (worldCenters[index] - worldPosition).sqrMagnitude;
+
+                if (distanceSqr < bestDistanceSqr)
+                {
+                    bestDistanceSqr = distanceSqr;
+                    bestIndex = index;
+                }
+            }
+
+            if (bestIndex < 0)
+            {
+                cell = default;
+                cellIndex = -1;
+                return false;
+            }
+
+            cell = new Vector2Int(bestIndex % Width, bestIndex / Width);
+            cellIndex = bestIndex;
+            return true;
+        }
+
+        private void RefreshWorldCenterCandidates(Vector2Int centerBucket)
+        {
+            cachedWorldCenterCandidates.Clear();
+
+            // Preserve the original search order so equal-distance ties resolve
+            // identically while avoiding 25 dictionary probes on every tiny step.
             for (int y = -2; y <= 2; y++)
             {
                 for (int x = -2; x <= 2; x++)
@@ -339,40 +405,22 @@ namespace OA.Simulation.Navigation
                         centerBucket.x + x,
                         centerBucket.y + y);
 
-                    if (!worldCenterBuckets.TryGetValue(bucket, out List<int> entries))
+                    if (worldCenterBuckets.TryGetValue(bucket, out List<int> entries))
                     {
-                        continue;
-                    }
-
-                    for (int i = 0; i < entries.Count; i++)
-                    {
-                        int index = entries[i];
-                        float distanceSqr =
-                            (worldCenters[index] - worldPosition).sqrMagnitude;
-
-                        if (distanceSqr < bestDistanceSqr)
-                        {
-                            bestDistanceSqr = distanceSqr;
-                            bestIndex = index;
-                        }
+                        cachedWorldCenterCandidates.AddRange(entries);
                     }
                 }
             }
 
-            if (bestIndex < 0)
-            {
-                cell = default;
-                return false;
-            }
-
-            cell = new Vector2Int(bestIndex % Width, bestIndex / Width);
-            return true;
+            cachedWorldCenterBucket = centerBucket;
+            hasCachedWorldCenterBucket = true;
         }
 
         // Preserves the original nearest-center behavior for unusual distant queries.
         private bool TryWorldToCellBruteForce(
             Vector2 worldPosition,
-            out Vector2Int cell)
+            out Vector2Int cell,
+            out int cellIndex)
         {
             float bestDistanceSqr = float.PositiveInfinity;
             int bestIndex = -1;
@@ -392,11 +440,20 @@ namespace OA.Simulation.Navigation
             if (bestIndex < 0)
             {
                 cell = default;
+                cellIndex = -1;
                 return false;
             }
 
             cell = new Vector2Int(bestIndex % Width, bestIndex / Width);
+            cellIndex = bestIndex;
             return true;
+        }
+
+        private void CacheWorldToCellQuery(Vector2 worldPosition, int cellIndex)
+        {
+            hasLastWorldToCellQuery = true;
+            lastWorldToCellPosition = worldPosition;
+            lastWorldToCellIndex = cellIndex;
         }
 
         private Vector2Int GetWorldCenterBucket(Vector2 position)
@@ -430,12 +487,6 @@ namespace OA.Simulation.Navigation
             }
 
             return count;
-        }
-
-        // Old/alternate name for neighbor lookup, kept as a tiny wrapper.
-        public int GetNeighborIndex(int x, int y, Vector2Int[] results)
-        {
-            return GetNeighborCount(x, y, results);
         }
 
         // Measures true hex distance by converting offset cells to cube coordinates.

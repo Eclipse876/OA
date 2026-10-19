@@ -13,11 +13,12 @@ namespace OA.Simulation.Navigation
             Vector2 start,
             Vector2 end)
         {
-            return TryEvaluateSegment(
+            return TryEvaluateSegmentInternal(
                 map,
                 mask,
                 start,
                 end,
+                false,
                 out _);
         }
 
@@ -42,6 +43,23 @@ namespace OA.Simulation.Navigation
             NavigationTraversalMask mask,
             Vector2 start,
             Vector2 end,
+            out float highestMoveCost)
+        {
+            return TryEvaluateSegmentInternal(
+                map,
+                mask,
+                start,
+                end,
+                true,
+                out highestMoveCost);
+        }
+
+        private static bool TryEvaluateSegmentInternal(
+            HexMapRuntime map,
+            NavigationTraversalMask mask,
+            Vector2 start,
+            Vector2 end,
+            bool evaluateMoveCost,
             out float highestMoveCost)
         {
             highestMoveCost = 1f;
@@ -72,15 +90,18 @@ namespace OA.Simulation.Navigation
                     return false;
                 }
 
-                highestMoveCost = Mathf.Max(
-                    highestMoveCost,
-                    NavigationTerrainRules.GetTraversalCostMultiplier(
-                        map,
-                        cell.x,
-                        cell.y,
-                        mask != null
-                            ? mask.Profile.DraftClass
-                            : ShipDraftClass.Shallow));
+                if (evaluateMoveCost)
+                {
+                    highestMoveCost = Mathf.Max(
+                        highestMoveCost,
+                        NavigationTerrainRules.GetTraversalCostMultiplier(
+                            map,
+                            cell.x,
+                            cell.y,
+                            mask != null
+                                ? mask.Profile.DraftClass
+                                : ShipDraftClass.Shallow));
+                }
             }
 
             return true;

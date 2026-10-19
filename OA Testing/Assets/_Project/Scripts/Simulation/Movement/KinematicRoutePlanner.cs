@@ -189,6 +189,23 @@ namespace OA.Simulation.Movement
             MovementProfileDefinition profile,
             out RouteSegmentIntent intent)
         {
+            return CalculateAllowedSpeedKnots(
+                course,
+                progressWorld,
+                1,
+                speedMode,
+                profile,
+                out intent);
+        }
+
+        public static float CalculateAllowedSpeedKnots(
+            IReadOnlyList<ShipRoutePoint> course,
+            float progressWorld,
+            int firstConstraintIndex,
+            MovementSpeedMode speedMode,
+            MovementProfileDefinition profile,
+            out RouteSegmentIntent intent)
+        {
             intent = RouteSegmentIntent.Cruise;
 
             if (course == null || course.Count < 2 || profile == null)
@@ -209,7 +226,15 @@ namespace OA.Simulation.Movement
             float allowedSpeedKnots = targetSpeedKnots;
             SpeedLimiter limiter = SpeedLimiter.None;
 
-            for (int i = 1; i < course.Count - 1; i++)
+            int firstIndex = Mathf.Clamp(firstConstraintIndex, 1, course.Count - 1);
+
+            while (firstIndex > 1 &&
+                   course[firstIndex - 1].DistanceFromStartWorld >= progressWorld)
+            {
+                firstIndex--;
+            }
+
+            for (int i = firstIndex; i < course.Count - 1; i++)
             {
                 float limit = course[i].SpeedLimitKnots;
 

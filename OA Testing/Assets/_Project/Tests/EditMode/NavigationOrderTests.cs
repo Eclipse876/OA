@@ -50,6 +50,79 @@ public sealed class NavigationOrderTests
         return service;
     }
 
+    [Test]
+    public void WorldToCell_SequentialLookupsMatchFullNearestCenterSearch()
+    {
+        var map = Map(64, 32);
+        var targets = new[]
+        {
+            map.GetWorldCenter(3, 4) + new Vector2(1.37f, -0.81f),
+            map.GetWorldCenter(58, 25) + new Vector2(-2.19f, 0.63f),
+            map.GetWorldCenter(12, 27) + new Vector2(0.77f, -1.11f),
+            map.GetWorldCenter(50, 6) + new Vector2(-1.53f, 1.29f)
+        };
+
+        Vector2 previous = map.GetWorldCenter(2, 2) + new Vector2(0.31f, 0.47f);
+
+        foreach (Vector2 target in targets)
+        {
+            int steps = Mathf.CeilToInt(
+                Vector2.Distance(previous, target) / (map.CellSize * 0.35f));
+
+            for (int step = 0; step <= steps; step++)
+            {
+                Vector2 query = Vector2.Lerp(previous, target, step / (float)steps);
+                Vector2Int expected = FindClosestCellByScan(map, query);
+                Assert.IsTrue(map.TryWorldToCell(query, out Vector2Int actual));
+                Assert.AreEqual(expected, actual, $"Incorrect cell at {query}");
+            }
+
+            previous = target;
+        }
+    }
+
+    [Test]
+    public void AllowedSpeed_FromCurrentConstraintMatchesFullConstraintScan()
+    {
+        var profile = Profile();
+        var route = new[]
+        {
+            new ShipRoutePoint(Vector2.zero, 0f, 20f, RouteSegmentIntent.Cruise),
+            new ShipRoutePoint(Vector2.right * 20f, 20f, 9f, RouteSegmentIntent.Slow),
+            new ShipRoutePoint(Vector2.right * 60f, 60f, 14f, RouteSegmentIntent.Slow),
+            new ShipRoutePoint(Vector2.right * 110f, 110f, 7f, RouteSegmentIntent.Slow),
+            new ShipRoutePoint(Vector2.right * 180f, 180f, 0f, RouteSegmentIntent.Stop)
+        };
+        float[] progressSamples = { 0f, 20f, 20.01f, 59f, 60f, 90f, 111f, 179f };
+
+        foreach (float progress in progressSamples)
+        {
+            int guidanceIndex = 1;
+            while (guidanceIndex < route.Length - 1 &&
+                   route[guidanceIndex].DistanceFromStartWorld < progress + 0.0001f)
+            {
+                guidanceIndex++;
+            }
+
+            float expected = KinematicRoutePlanner.CalculateAllowedSpeedKnots(
+                route,
+                progress,
+                MovementSpeedMode.Cruise,
+                profile,
+                out RouteSegmentIntent expectedIntent);
+            float actual = KinematicRoutePlanner.CalculateAllowedSpeedKnots(
+                route,
+                progress,
+                guidanceIndex,
+                MovementSpeedMode.Cruise,
+                profile,
+                out RouteSegmentIntent actualIntent);
+
+            Assert.AreEqual(expected, actual, 0.0001f, $"Speed mismatch at {progress}");
+            Assert.AreEqual(expectedIntent, actualIntent, $"Intent mismatch at {progress}");
+        }
+    }
+
     [TestCase(true)]
     [TestCase(false)]
     public void Destination_UsesClosestReachableWater_ForLandOrDisconnectedWater(bool landClick)
@@ -210,6 +283,29 @@ public sealed class NavigationOrderTests
         target.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(target, value);
     private static T Get<T>(object target, string field) =>
         (T)target.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(target);
+
+    private static Vector2Int FindClosestCellByScan(HexMapRuntime map, Vector2 position)
+    {
+        float bestDistanceSqr = float.PositiveInfinity;
+        Vector2Int best = default;
+
+        for (int y = 0; y < map.Height; y++)
+        {
+            for (int x = 0; x < map.Width; x++)
+            {
+                float distanceSqr =
+                    (map.GetWorldCenter(x, y) - position).sqrMagnitude;
+
+                if (distanceSqr < bestDistanceSqr)
+                {
+                    bestDistanceSqr = distanceSqr;
+                    best = new Vector2Int(x, y);
+                }
+            }
+        }
+
+        return best;
+    }
 
     [Test]
     public void MovingHandoff_ForecastMatchesLiveState_AndSwitchesOnReservedStep()

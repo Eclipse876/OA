@@ -123,6 +123,7 @@ namespace OA.Simulation.Movement
             float speedLimitKnots = KinematicRoutePlanner.CalculateAllowedSpeedKnots(
                 route,
                 followState.ProgressWorld,
+                guidanceIndex,
                 speedMode,
                 profile,
                 out segmentIntent);
