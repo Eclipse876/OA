@@ -129060,7 +129060,7 @@ MonoBehaviour:
   constrainedTurnAttempts: 3
   constrainedTurnSpeedScaleStep: 0.3
   minimumConstrainedTurnSpeedScale: 0.1
-  planningBudgetMillisecondsPerFrame: 6
+  planningBudgetMillisecondsPerFrame: 10
   predictionStepsPerPlanningSlice: 192
   minimumPredictionTimeBudgetSeconds: 12
   predictionTimeBudgetMultiplier: 3.5
@@ -129068,7 +129068,7 @@ MonoBehaviour:
   maximumRecoveryGeometryBases: 1
   planningHandoffLeadSeconds: 0.25
   planningHandoffSafetySeconds: 0.08
-  estimatedPredictionStepsPerPlanningSecond: 100000
+  estimatedPredictionStepsPerPlanningSecond: 200000
   maximumPlanningHandoffLeadSeconds: 3
   finalWaypointSafeOffsetFraction: 0.12
   finalWaypointOpenOffsetFraction: 0.35

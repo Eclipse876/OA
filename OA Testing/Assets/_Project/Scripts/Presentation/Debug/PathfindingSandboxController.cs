@@ -62,7 +62,7 @@ namespace OA.Presentation.Debug
         [SerializeField, Range(0.02f, 1f)] private float minimumConstrainedTurnSpeedScale = 0.1f;
 
         [Header("Planning Budget")]
-        [SerializeField, Min(0.1f)] private float planningBudgetMillisecondsPerFrame = 6f;
+        [SerializeField, Min(0.1f)] private float planningBudgetMillisecondsPerFrame = 10f;
         [SerializeField, Min(1)] private int predictionStepsPerPlanningSlice = 192;
 
         [Header("Prediction Limits")]
@@ -72,7 +72,7 @@ namespace OA.Presentation.Debug
         [SerializeField, Range(1, 4)] private int maximumRecoveryGeometryBases = 1;
         [SerializeField, Min(0.05f)] private float planningHandoffLeadSeconds = 0.25f;
         [SerializeField, Min(0f)] private float planningHandoffSafetySeconds = 0.08f;
-        [SerializeField, Min(1000f)] private float estimatedPredictionStepsPerPlanningSecond = 100000f;
+        [SerializeField, Min(1000f)] private float estimatedPredictionStepsPerPlanningSecond = 200000f;
         [SerializeField, Min(0.1f)] private float maximumPlanningHandoffLeadSeconds = 3f;
 
         [Header("Waypoint Safety")]
