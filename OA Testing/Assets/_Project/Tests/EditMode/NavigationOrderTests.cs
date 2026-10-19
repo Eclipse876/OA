@@ -358,15 +358,29 @@ public sealed class NavigationOrderTests
         Assert.IsFalse(Get<bool>(controller, "hasPendingPlanning"), "Planning never completed");
         Assert.IsTrue(Get<ShipRoute>(controller, "activeRoute").IsValid, "Order was discarded");
         Assert.AreEqual(2, Get<System.Collections.IList>(controller, "committedRouteWaypoints").Count);
+        Assert.LessOrEqual(Get<int>(controller, "pendingSnapshotRestarts"), 1,
+            "Adaptive handoff reservation should prevent repeated full replans.");
     }
 
     [Test]
-    public void ScaledBakedMap_LongMovingOrdersAndLandClicks_CommitReachableRoutes()
+    public void ScaledGeneratedMap_LongMovingOrdersAndLandClicks_CommitReachableRoutes()
     {
         var definition = AssetDatabase.LoadAssetAtPath<HexMapDefinition>(
             "Assets/_Project/Data/Scenarios/Navigation/HexMapDefinition_Main.asset");
         Assert.IsNotNull(definition, "The scaled production map must be present for this regression.");
-        var map = HexMapRuntime.FromDefinition(definition);
+        var map = new HexMapRuntime(
+            definition.Width,
+            definition.Height,
+            definition.CellSize);
+        var spawn = new Vector2Int(2, 2);
+        new HexMapGenerator().Generate(
+            map,
+            definition.Seed,
+            definition.ObstacleChance,
+            definition.RoughWaterChance,
+            definition.SmoothingPasses,
+            spawn,
+            new Vector2Int(21, 31));
         for (int y = 0; y < map.Height; y++)
             for (int x = 0; x < map.Width; x++)
                 map.SetWorldCenter(x, y, new Vector2((x + (y % 2) * 0.5f) * map.CellSize, y * map.CellSize * 0.8660254f));
@@ -374,11 +388,7 @@ public sealed class NavigationOrderTests
         var service = Service(map, 126f / 31.034483f * 0.5f);
         var agent = Agent(map);
         var mask = service.GetTraversalMask(map, new NavigationProfile(agent.MovementProfile.NavigationSafetyRadiusWorld, ShipDraftClass.Shallow));
-        Vector2Int spawn = default;
-        bool found = false;
-        for (int i = 0; i < mask.BlockedCells.Length; i++)
-            if (!mask.BlockedCells[i]) { spawn = new Vector2Int(i % map.Width, i / map.Width); found = true; break; }
-        Assert.IsTrue(found);
+        Assert.IsFalse(mask.IsBlocked(spawn));
         agent.WarpTo(map.GetWorldCenter(spawn.x, spawn.y));
         var go = Own(new GameObject("Scaled order controller")); go.SetActive(false);
         var controller = go.AddComponent<PathfindingSandboxController>();
@@ -412,6 +422,15 @@ public sealed class NavigationOrderTests
             Assert.IsTrue(mask.TryFindClosestReachableCell(start, map.GetWorldCenter(target.x, target.y), out var expectedCell));
             Assert.AreEqual(expectedCell, acceptedCell, $"Old order survived instead of accepting {target}");
             Assert.IsTrue(Get<ShipRoute>(controller, "activeRoute").IsValid);
+            Assert.LessOrEqual(Get<int>(controller, "pendingSnapshotRestarts"), 1,
+                $"Route to {target} repeatedly missed its handoff reservation.");
+            Assert.Greater(Get<double>(controller, "pendingPlanningCpuMilliseconds"), 0d);
+            TestContext.WriteLine(
+                $"{target}: frames={Get<int>(controller, "pendingPlanFrames")}, " +
+                $"steps={Get<int>(controller, "pendingPhysicalSteps")}, " +
+                $"restarts={Get<int>(controller, "pendingSnapshotRestarts")}, " +
+                $"lead={Get<float>(controller, "pendingHandoffLead"):F3}s, " +
+                $"cpu={Get<double>(controller, "pendingPlanningCpuMilliseconds"):F2}ms");
         }
     }
 

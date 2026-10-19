@@ -18,8 +18,7 @@ namespace OA.Simulation.Navigation
             Vector2 startWorld,
             Vector2 destinationWorld,
             List<Vector2> routeOut,
-            List<Vector2> scratchCandidates,
-            float sampleFactor = 0.2f)
+            List<Vector2> scratchCandidates)
         {
             if (routeOut == null || scratchCandidates == null)
             {
