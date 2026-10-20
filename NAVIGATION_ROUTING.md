@@ -2,7 +2,7 @@
 
 ## Performance update — 2026-10-19
 
-Long-range planning is now consistently subsecond on the production 1000 × 500 generated-map regression. Seven successive moving orders, including a corner-to-corner route and a land click, complete with zero handoff restarts. Reserved handoff lead is 0.26–0.50 seconds for the representative routes and 0.58 seconds for the extreme corner-to-corner route.
+Planning CPU is below half a second across the seven production 1000 × 500 generated-map regression orders. These successive moving orders, including a corner-to-corner route and a land click, complete with zero handoff restarts. Reserved handoff lead is 0.26–0.50 seconds for the representative routes and 0.58 seconds for the extreme corner-to-corner route. The regression advances simulation steps directly; these reservations are not a measurement of interactive player latency.
 
 The original delay was not primarily raw A*. Exact whole-route motion prediction, repeated long-segment smoothing, full-mask destination scans, and missed 0.25-second handoffs compounded into the observed 0.25 → 0.6 → 1.5 second retry staircase. The current implementation:
 
@@ -15,7 +15,11 @@ The original delay was not primarily raw A*. Exact whole-route motion prediction
 
 The EditMode navigation suite now has 17 passing cases. On the exact production-scale generated map, measured planning CPU ranges from roughly 79 to 432 ms; the worst route is approximately 233 ms prediction, 128 ms A*, and 63 ms smoothing. The Windows x64 player builds successfully with `PathfindingTesting` as its startup scene and completes a headless startup smoke test.
 
-Remaining boundary: A* and smoothing are still synchronous, so a difficult global search can still create a single-frame spike even though end-to-end order latency is now subsecond. Whole-route physical prediction remains intentionally exact and is the largest cost on unobstructed map-spanning trips.
+Remaining boundary: A* and smoothing are still synchronous, so a difficult global search can still create a single-frame spike. Whole-route physical prediction remains intentionally exact and is the largest cost on unobstructed map-spanning trips. The headless player smoke test verifies startup, while interactive frame pacing and visual behavior still require a manual playthrough.
+
+## Windows handoff — 2026-10-20
+
+The verified Windows build is packaged at `OA Testing/Builds/OA_Pathfinding_Windows_2026-10-19_c16b8cf.zip` (about 43.5 MB compressed). It contains the runtime files and a controls/validation readme, with Unity's `BurstDebugInformation_DoNotShip` folder excluded. Extract the entire archive before running `OA.exe`. The runtime source checkpoint is `c16b8cf`; this archive has not been uploaded or sent externally.
 
 ## Reliability baseline — 2026-09-27
 
