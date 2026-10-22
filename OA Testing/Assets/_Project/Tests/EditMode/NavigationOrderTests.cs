@@ -51,6 +51,24 @@ public sealed class NavigationOrderTests
     }
 
     [Test]
+    public void HandoffTiming_RecoversAfterSlowPlan_AndSeparatesWaypointWorkloads()
+    {
+        var timing = new RoutePlanningTiming();
+        timing.RecordSuccess(60000, 6, 1.64f);
+        float slow = timing.EstimateLead(60000, 6, 200000f, 0.25f, 0.08f, 3f);
+        Assert.Greater(slow, 1.7f);
+        Assert.Less(timing.EstimateLead(60000, 1, 200000f, 0.25f, 0.08f, 3f), 0.5f,
+            "A difficult queue must not slow unrelated direct orders.");
+
+        for (int i = 0; i < 5; i++) timing.RecordSuccess(60000, 6, 0.28f);
+        float recovered = timing.EstimateLead(60000, 6, 200000f, 0.25f, 0.08f, 3f);
+        Assert.Less(recovered, 0.55f, "The learned reservation must decrease again.");
+        Assert.GreaterOrEqual(recovered, 0.36f);
+        Assert.Less(timing.EstimateLead(40000, 6, 200000f, 0.25f, 0.08f, 3f), recovered,
+            "Shorter routes in the same bucket should not inherit a fixed delay.");
+    }
+
+    [Test]
     public void WorldToCell_SequentialLookupsMatchFullNearestCenterSearch()
     {
         var map = Map(64, 32);

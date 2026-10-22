@@ -107,7 +107,7 @@ namespace OA.Presentation.Debug
         private readonly List<RouteGeometryCandidate> pendingCandidates = new List<RouteGeometryCandidate>(16);
         private readonly List<RouteGeometryCandidate> pendingNormalCandidates = new List<RouteGeometryCandidate>(8);
         private readonly ShipRoutePrediction pendingPrediction = new ShipRoutePrediction();
-        private readonly float[] learnedHandoffLeadByWorkBucket = new float[4];
+        private readonly RoutePlanningTiming planningTiming = new RoutePlanningTiming();
         private readonly List<SpriteRenderer> waypointMarkerPool = new List<SpriteRenderer>(32);
         private readonly Vector2Int[] neighborBuffer = new Vector2Int[6];
         private SpriteRenderer nextWaypointMarkerRenderer;
@@ -139,9 +139,7 @@ namespace OA.Presentation.Debug
         private bool pendingCornerStopQueued;
         private bool pendingAwaitingHandoff;
         private int pendingHandoffGeneration;
-        private int pendingHandoffWorkBucket;
         private int pendingEstimatedPhysicalSteps;
-        private bool pendingHandoffWasMoving;
         private float pendingHandoffLead;
         private long pendingHandoffStep;
         private readonly ShipRoute handoffRoute = new ShipRoute();
@@ -503,6 +501,7 @@ namespace OA.Presentation.Debug
         private void RebuildNavigation(NavigationProfile profile)
         {
             CancelPendingRoutePlanning();
+            planningTiming.Clear();
             shipAgent.SetNavigationMap(map);
 
             // First paint establishes the exact world-space center of every visible cell.
@@ -970,14 +969,11 @@ namespace OA.Presentation.Debug
                 pendingEstimatedPhysicalSteps = EstimatePhysicalPredictionSteps(
                     shipAgent.CurrentMovementState.Position,
                     pendingRouteWaypoints);
-                pendingHandoffWorkBucket = GetHandoffWorkBucket(
-                    pendingEstimatedPhysicalSteps);
                 pendingHandoffLead = CalculateInitialHandoffLead(
                     pendingEstimatedPhysicalSteps,
-                    pendingHandoffWorkBucket);
+                    pendingRouteWaypoints.Count);
             }
 
-            pendingHandoffWasMoving = moving;
             int handoffSteps = moving
                 ? Mathf.CeilToInt(pendingHandoffLead / Mathf.Max(0.005f, Time.fixedDeltaTime)) : 0;
             pendingHandoffStep = shipAgent.SimulationStep + handoffSteps;
@@ -1607,49 +1603,30 @@ namespace OA.Presentation.Debug
                 Mathf.CeilToInt(distance / Mathf.Max(0.0001f, worldPerStep) * 1.15f));
         }
 
-        private static int GetHandoffWorkBucket(int estimatedSteps)
-        {
-            if (estimatedSteps < 8000) return 0;
-            if (estimatedSteps < 20000) return 1;
-            if (estimatedSteps < 40000) return 2;
-            return 3;
-        }
-
         private float CalculateInitialHandoffLead(
             int estimatedSteps,
-            int workBucket)
+            int waypointCount)
         {
-            float estimatedPlanningSeconds = estimatedSteps /
-                Mathf.Max(1000f, estimatedPredictionStepsPerPlanningSecond);
-            float learnedLead = learnedHandoffLeadByWorkBucket[
-                Mathf.Clamp(workBucket, 0, learnedHandoffLeadByWorkBucket.Length - 1)];
-
-            return Mathf.Clamp(
-                Mathf.Max(
-                    planningHandoffLeadSeconds,
-                    estimatedPlanningSeconds + planningHandoffSafetySeconds,
-                    learnedLead),
-                0.05f,
-                Mathf.Max(0.1f, maximumPlanningHandoffLeadSeconds));
+            return planningTiming.EstimateLead(
+                estimatedSteps,
+                waypointCount,
+                estimatedPredictionStepsPerPlanningSecond,
+                planningHandoffLeadSeconds,
+                planningHandoffSafetySeconds,
+                maximumPlanningHandoffLeadSeconds);
         }
 
         private void RecordSuccessfulHandoffReservation()
         {
-            if (!pendingHandoffWasMoving || pendingAttemptStopwatch == null)
+            if (pendingAttemptStopwatch == null)
             {
                 return;
             }
 
-            float observedLead = (float)pendingAttemptStopwatch.Elapsed.TotalSeconds +
-                planningHandoffSafetySeconds;
-            int bucket = Mathf.Clamp(
-                pendingHandoffWorkBucket,
-                0,
-                learnedHandoffLeadByWorkBucket.Length - 1);
-            learnedHandoffLeadByWorkBucket[bucket] = Mathf.Clamp(
-                Mathf.Max(learnedHandoffLeadByWorkBucket[bucket], observedLead),
-                0.05f,
-                Mathf.Max(0.1f, maximumPlanningHandoffLeadSeconds));
+            planningTiming.RecordSuccess(
+                pendingEstimatedPhysicalSteps,
+                pendingRouteWaypoints.Count,
+                (float)pendingAttemptStopwatch.Elapsed.TotalSeconds);
         }
 
         private bool IsPendingSnapshotStale()
@@ -1673,9 +1650,6 @@ namespace OA.Presentation.Debug
                 Mathf.Max(
                     pendingHandoffLead * 2f,
                     attemptSeconds * 1.5f + planningHandoffSafetySeconds));
-            learnedHandoffLeadByWorkBucket[pendingHandoffWorkBucket] = Mathf.Max(
-                learnedHandoffLeadByWorkBucket[pendingHandoffWorkBucket],
-                pendingHandoffLead);
             routeWaypoints.Clear();
             routeWaypoints.AddRange(pendingRouteWaypoints);
             TryRouteThroughWaypoints(pendingPlanSilent, false);
