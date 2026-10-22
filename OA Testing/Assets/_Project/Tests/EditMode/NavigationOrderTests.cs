@@ -8,6 +8,7 @@ using OA.Simulation.Navigation;
 using OA.Simulation.Units;
 using UnityEngine;
 using UnityEditor;
+using UnityEngine.TestTools;
 
 public sealed class NavigationOrderTests
 {
@@ -62,10 +63,17 @@ public sealed class NavigationOrderTests
 
         for (int i = 0; i < 5; i++) timing.RecordSuccess(60000, 6, 0.28f);
         float recovered = timing.EstimateLead(60000, 6, 200000f, 0.25f, 0.08f, 3f);
-        Assert.Less(recovered, 0.55f, "The learned reservation must decrease again.");
+        Assert.Less(recovered, 0.42f, "The learned reservation must decrease again.");
         Assert.GreaterOrEqual(recovered, 0.36f);
         Assert.Less(timing.EstimateLead(40000, 6, 200000f, 0.25f, 0.08f, 3f), recovered,
             "Shorter routes in the same bucket should not inherit a fixed delay.");
+
+        timing.RecordSuccess(60000, 1, 0.4f, true);
+        timing.RecordSuccess(60000, 1, 0.1f, false);
+        Assert.Greater(timing.EstimateLead(60000, 1, 200000f, 0.25f, 0.08f, 3f, true), 0.47f,
+            "A direct cruise must not erase the timing allowance for an obstructed route.");
+        Assert.AreEqual(0.25f,
+            timing.EstimateLead(60000, 1, 200000f, 0.25f, 0.08f, 3f, false), 0.001f);
     }
 
     [Test]
@@ -568,6 +576,234 @@ public sealed class NavigationOrderTests
                 $"geometry={Get<System.Collections.IList>(controller, "fullWorldPath").Count}, " +
                 $"guidance={Get<ShipRoute>(controller, "activeRoute").ControlPoints.Count}");
         }
+    }
+
+    private PathfindingSandboxController Controller(HexMapRuntime map, HexMapPathService service,
+        ShipNavigationAgent agent)
+    {
+        var go = Own(new GameObject("Route regression controller"));
+        go.SetActive(false);
+        var controller = go.AddComponent<PathfindingSandboxController>();
+        Set(controller, "map", map);
+        Set(controller, "pathService", service);
+        Set(controller, "gridPresenter", new TestPresenter(map));
+        Set(controller, "shipAgent", agent);
+        Set(controller, "logStatus", false);
+        return controller;
+    }
+
+    [Test]
+    public void LocalRepair_ReplansOnlyFailedLeg_AndPreservesOtherWaypoints()
+    {
+        var map = Map(128, 64);
+        map.SetBlocked(64, 32, true);
+        var service = Service(map, 2.03f);
+        var agent = Agent(map);
+        agent.WarpTo(map.GetWorldCenter(2, 32));
+        var controller = Controller(map, service, agent);
+        Vector2Int[] targets = {
+            new Vector2Int(30, 32), new Vector2Int(95, 32), new Vector2Int(110, 12),
+            new Vector2Int(80, 52), new Vector2Int(35, 52), new Vector2Int(110, 40)
+        };
+        for (int i = 0; i < targets.Length; i++)
+            Call(controller, "HandleDestinationSelection", targets[i],
+                map.GetWorldCenter(targets[i].x, targets[i].y), i > 0, false);
+
+        var mask = Get<NavigationTraversalMask>(controller, "pendingRequiredMask");
+        bool[] originalBlocked = (bool[])mask.BlockedCells.Clone();
+        Assert.IsTrue((bool)Call(controller, "TryBuildFullGeometryRoute", mask, true, null, -1));
+        Call(controller, "QueueCurrentGeometryCandidate", mask, 0f, 1f, false, false, true);
+        var candidates = Get<System.Collections.IList>(controller, "pendingCandidates");
+        object original = candidates[candidates.Count - 1];
+        Set(controller, "pendingLastFailureLeg", 1);
+        Set(controller, "pendingLastFailurePosition", map.GetWorldCenter(63, 32));
+        int legsBefore = Get<int>(controller, "pendingAStarLegs");
+        Assert.IsTrue((bool)Call(controller, "TryQueueLocalRepair", original));
+        Assert.AreEqual(1, Get<int>(controller, "pendingAStarLegs") - legsBefore,
+            "Repairing one failed leg must not search all six legs again.");
+        object repaired = candidates[Get<int>(controller, "pendingCandidateIndex")];
+        var type = repaired.GetType();
+        var points = (List<Vector2>)type.GetField("Geometry").GetValue(repaired);
+        var ends = (List<int>)type.GetField("WaypointEndIndices").GetValue(repaired);
+        var oldPoints = (List<Vector2>)type.GetField("Geometry").GetValue(original);
+        var oldEnds = (List<int>)type.GetField("WaypointEndIndices").GetValue(original);
+        Assert.AreEqual(targets.Length, ends.Count);
+        for (int leg = 0; leg < ends.Count; leg++)
+        {
+            Assert.AreEqual(oldPoints[oldEnds[leg]], points[ends[leg]], "A requested waypoint moved.");
+            if (leg == 1) continue;
+            int first = leg == 0 ? 0 : ends[leg - 1];
+            int oldFirst = leg == 0 ? 0 : oldEnds[leg - 1];
+            CollectionAssert.AreEqual(oldPoints.GetRange(oldFirst, oldEnds[leg] - oldFirst + 1),
+                points.GetRange(first, ends[leg] - first + 1), "An unaffected leg changed.");
+        }
+        for (int i = 1; i < points.Count; i++)
+            Assert.IsTrue(RouteSegmentUtility.IsSegmentTraversable(map, mask, points[i - 1], points[i]));
+        CollectionAssert.AreEqual(originalBlocked, mask.BlockedCells, "Repair changed the legal-water mask.");
+    }
+
+    [UnityTest]
+    public System.Collections.IEnumerator FourCoastalWaypoints_CommitWithRealElapsedHandoffTiming()
+    {
+        return CoastalWaypointQueue(4);
+    }
+
+    [UnityTest]
+    public System.Collections.IEnumerator FiveCoastalWaypoints_CommitWithRealElapsedHandoffTiming()
+    {
+        return CoastalWaypointQueue(5);
+    }
+
+    [UnityTest]
+    public System.Collections.IEnumerator SixCoastalWaypoints_CommitWithRealElapsedHandoffTiming()
+    {
+        return CoastalWaypointQueue(6);
+    }
+
+    private System.Collections.IEnumerator CoastalWaypointQueue(int waypointCount)
+    {
+        var definition = AssetDatabase.LoadAssetAtPath<HexMapDefinition>(
+            "Assets/_Project/Data/Scenarios/Navigation/HexMapDefinition_Main.asset");
+        var recipe = new RoutePlanningReplay {
+            GeneratedMap = true, MapSeed = definition.Seed,
+            Width = definition.Width, Height = definition.Height, CellSize = definition.CellSize,
+            ObstacleChance = definition.ObstacleChance, RoughWaterChance = definition.RoughWaterChance,
+            SmoothingPasses = definition.SmoothingPasses, SpawnCell = new Vector2Int(2, 2),
+            GoalCell = new Vector2Int(21, 31), ColumnStep = Vector2.right * definition.CellSize,
+            RowStep = Vector2.up * definition.CellSize * 0.8660254f,
+            OddRowOffset = Vector2.right * definition.CellSize * 0.5f
+        };
+        var map = recipe.RecreateGeneratedMap();
+        var service = Service(map, 2.03f);
+        var agent = Agent(map);
+        agent.WarpTo(map.GetWorldCenter(2, 2));
+        agent.SetPath(new[] { map.GetWorldCenter(2, 2), map.GetWorldCenter(2, 2) + Vector2.right * 160f });
+        for (int i = 0; i < 40; i++) Call(agent, "FixedUpdate");
+        Assert.Greater(agent.CurrentMovementState.SpeedKnots, 0f);
+        var controller = Controller(map, service, agent);
+        Set(controller, "mapReplayRecipe", recipe);
+        // Exercises the coastline regions reported in the console. The old log
+        // lacks the original queue/state, so this is a new deterministic fixture.
+        Vector2Int[] targets = {
+            new Vector2Int(120, 260), new Vector2Int(170, 275), new Vector2Int(240, 95),
+            new Vector2Int(280, 70), new Vector2Int(320, 240), new Vector2Int(110, 200)
+        };
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        for (int i = 0; i < waypointCount; i++)
+            Call(controller, "HandleDestinationSelection", targets[i],
+                map.GetWorldCenter(targets[i].x, targets[i].y), i > 0, false);
+        string replayJson = (string)Call(controller, "CapturePendingRouteReplay");
+        var replay = JsonUtility.FromJson<RoutePlanningReplay>(replayJson);
+        Assert.AreEqual(waypointCount, replay.ResolvedWaypoints.Length);
+        Assert.AreEqual(Get<MovementState>(controller, "pendingInitialMovementState").VelocityWorld,
+            replay.ForecastState.VelocityWorld);
+        double simulatedWallSeconds = 0d;
+        while (Get<bool>(controller, "hasPendingPlanning") && elapsed.Elapsed.TotalSeconds < 10d)
+        {
+            // Unlike the older fast loop, elapsed wall time drives fixed steps.
+            while (simulatedWallSeconds + Time.fixedDeltaTime <= elapsed.Elapsed.TotalSeconds)
+            {
+                Call(agent, "FixedUpdate");
+                simulatedWallSeconds += Time.fixedDeltaTime;
+            }
+            if (Get<bool>(controller, "pendingAwaitingHandoff") && !agent.HasScheduledRoute)
+                Call(controller, "CompleteScheduledRouteHandoff");
+            else Call(controller, "AdvancePendingRoutePlanning");
+            yield return null;
+        }
+
+        Assert.IsFalse(Get<bool>(controller, "hasPendingPlanning"), "Planning/handoff never finished.");
+        Assert.IsTrue(Get<ShipRoute>(controller, "activeRoute").IsValid,
+            $"Order failed: {controller.LastRouteReplayJson}");
+        Assert.AreEqual(waypointCount, Get<System.Collections.IList>(controller, "committedRouteWaypoints").Count);
+        double appliedMs = Get<System.Diagnostics.Stopwatch>(controller, "pendingPlanningStopwatch")
+            .Elapsed.TotalMilliseconds;
+        TestContext.WriteLine($"Coastal queue ({waypointCount} waypoints): input-to-applied={appliedMs:F2}ms; " +
+            $"ready={Get<double>(controller, "pendingPlanReadyWallMilliseconds"):F2}ms; " +
+            $"restarts={Get<int>(controller, "pendingSnapshotRestarts")}; " +
+            $"localRepairs={Get<int>(controller, "pendingLocalRepairsTotal")}; " +
+            $"cpu={Get<double>(controller, "pendingPlanningCpuMilliseconds"):F2}ms; " +
+            $"frames={Get<int>(controller, "pendingPlanFrames")}; " +
+            $"physicalSteps={Get<int>(controller, "pendingPhysicalSteps")}");
+        Assert.Less(appliedMs, 4000d, "A learned reservation or retry cascade delayed the whole queue.");
+        Assert.LessOrEqual(Get<int>(controller, "pendingSnapshotRestarts"), 1);
+        Assert.LessOrEqual(Get<int>(controller, "pendingLocalRepairsTotal"), 4,
+            "Local repair must remain bounded across a possible handoff restart.");
+        var mask = Get<NavigationTraversalMask>(controller, "pendingRequiredMask");
+        foreach (var sample in Get<ShipRoute>(controller, "activeRoute").PredictedSamples)
+        {
+            Assert.IsTrue(map.TryWorldToCell(sample.Position, out Vector2Int cell));
+            Assert.IsFalse(mask.IsBlocked(cell), $"Accepted physical track entered restricted water at {cell}.");
+        }
+
+        // Replay reconstruction is verification work, not part of order latency.
+        var rebuilt = replay.RecreateGeneratedMap();
+        CollectionAssert.AreEqual(map.Blocked, rebuilt.Blocked);
+        Assert.Less(Vector2.Distance(map.GetWorldCenter(320, 240), rebuilt.GetWorldCenter(320, 240)), 0.05f);
+    }
+
+    [Test]
+    public void FailedPredictionReplay_ReproducesExactCollisionAfterJsonRoundTrip()
+    {
+        var map = Map(32, 16);
+        map.SetBlocked(16, 8, true);
+        var service = Service(map);
+        var mask = service.GetTraversalMask(map, new NavigationProfile(0f, ShipDraftClass.Shallow));
+        var profile = Profile();
+        Vector2 start = map.GetWorldCenter(2, 8);
+        Vector2 end = map.GetWorldCenter(28, 8);
+        var replay = new RoutePlanningReplay {
+            ForecastState = MovementState.Create(start, MovementMath.DirectionToHeadingDegrees(end - start)),
+            SpeedMode = MovementSpeedMode.Cruise, FixedDeltaTime = 0.02f,
+            LookAheadDistance = 8f, ArrivalDistance = 0.9f, FailedGeometry = new[] { start, end },
+            MovementProfileJson = JsonUtility.ToJson(profile), PredictionLimitSeconds = 600f,
+            StagnationSeconds = 20f
+        };
+        ShipRoute original = replay.CreateFailedCourse(profile);
+        var prediction = new ShipRoutePrediction();
+        prediction.Begin(original, replay.ForecastState, profile, replay.SpeedMode, map, mask,
+            replay.FixedDeltaTime, replay.LookAheadDistance, replay.ArrivalDistance,
+            maximumPredictionSeconds: replay.PredictionLimitSeconds, stagnationSeconds: replay.StagnationSeconds);
+        while (prediction.IsRunning) prediction.Advance(4096);
+        Assert.AreEqual(ShipRouteFailureReason.PredictedTrackBlocked, original.FailureReason);
+
+        var restored = JsonUtility.FromJson<RoutePlanningReplay>(JsonUtility.ToJson(replay));
+        var restoredProfile = Own(ScriptableObject.CreateInstance<MovementProfileDefinition>());
+        JsonUtility.FromJsonOverwrite(restored.MovementProfileJson, restoredProfile);
+        ShipRoute rerun = restored.CreateFailedCourse(restoredProfile);
+        prediction.Begin(rerun, restored.ForecastState, restoredProfile, restored.SpeedMode, map, mask,
+            restored.FixedDeltaTime, restored.LookAheadDistance, restored.ArrivalDistance,
+            maximumPredictionSeconds: restored.PredictionLimitSeconds, stagnationSeconds: restored.StagnationSeconds);
+        while (prediction.IsRunning) prediction.Advance(4096);
+        Assert.AreEqual(original.FailureReason, rerun.FailureReason);
+        Assert.AreEqual(original.FailurePosition, rerun.FailurePosition);
+        Assert.AreEqual(original.FailureTimeSeconds, rerun.FailureTimeSeconds);
+    }
+
+    [Test]
+    public void FinalRejectedOrder_IsAWarning_WithReplayAndFailedLeg()
+    {
+        var map = Map();
+        var service = Service(map);
+        var agent = Agent(map);
+        var controller = Controller(map, service, agent);
+        Call(controller, "HandleDestinationSelection", new Vector2Int(10, 8), map.GetWorldCenter(10, 8), false, false);
+        Call(controller, "HandleDestinationSelection", new Vector2Int(18, 8), map.GetWorldCenter(18, 8), true, false);
+        Set(controller, "pendingLastFailureLeg", 1);
+        Set(controller, "pendingLastFailureReason", ShipRouteFailureReason.PredictedTrackBlocked);
+        Set(controller, "pendingLastFailurePosition", new Vector2(4413.08f, 7348.31f));
+        Set(controller, "logStatus", true);
+        MovementState expectedContinuation = agent.PredictState(20, Time.fixedDeltaTime);
+        LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(
+            @"Route rejected\..*FailedLeg=2/2\..*HandoffRestarts=.*Replay="));
+        Call(controller, "CompletePendingRouteFailure");
+        var replay = JsonUtility.FromJson<RoutePlanningReplay>(controller.LastRouteReplayJson);
+        Assert.AreEqual(1, replay.FailedLeg);
+        Assert.AreEqual(2, replay.RequestedWaypoints.Length);
+        Assert.AreEqual(new Vector2(4413.08f, 7348.31f), replay.FailurePosition);
+        Assert.IsNotEmpty(replay.MovementProfileJson);
+        Assert.AreEqual(expectedContinuation.Position, agent.PredictState(20, Time.fixedDeltaTime).Position,
+            "Rejecting an order must preserve the already accepted course.");
     }
 
     private sealed class TestPresenter : INavigationGridPresenter

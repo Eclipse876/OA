@@ -42,6 +42,7 @@ namespace OA.Simulation.Movement
         public bool IsRunning { get; private set; }
         public bool IsComplete => !IsRunning;
         public int StepsExecuted => steps;
+        public float ProgressWorld => followState.ProgressWorld;
         public ShipRoute Candidate => candidate;
 
         public void Begin(

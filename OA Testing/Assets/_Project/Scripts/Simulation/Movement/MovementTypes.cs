@@ -16,6 +16,7 @@ namespace OA.Simulation.Movement
         Pivot = 3
     }
 
+    [System.Serializable]
     public struct MovementState
     {
         public Vector2 Position;

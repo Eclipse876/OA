@@ -6,7 +6,7 @@ namespace OA.Simulation.Navigation
     // lead is deliberately not a sample: it includes unused future waiting time.
     public sealed class RoutePlanningTiming
     {
-        private readonly float[] secondsPerWorkStep = new float[12];
+        private readonly float[] secondsPerWorkStep = new float[24];
 
         public float EstimateLead(
             int estimatedSteps,
@@ -14,12 +14,12 @@ namespace OA.Simulation.Navigation
             float stepsPerSecond,
             float minimumLead,
             float safetySeconds,
-            float maximumLead)
+            float maximumLead,
+            bool requiresCorridorSearch = false)
         {
             float work = WorkSteps(estimatedSteps, waypointCount);
-            float rate = Mathf.Max(
-                1f / Mathf.Max(1000f, stepsPerSecond),
-                secondsPerWorkStep[Bucket(estimatedSteps, waypointCount)]);
+            float rate = secondsPerWorkStep[Bucket(estimatedSteps, waypointCount, requiresCorridorSearch)];
+            if (rate <= 0f) rate = 1f / Mathf.Max(1000f, stepsPerSecond);
             return Mathf.Clamp(
                 Mathf.Max(minimumLead, work * rate + safetySeconds),
                 0.05f,
@@ -29,7 +29,8 @@ namespace OA.Simulation.Navigation
         public void RecordSuccess(
             int estimatedSteps,
             int waypointCount,
-            float elapsedSeconds)
+            float elapsedSeconds,
+            bool requiresCorridorSearch = false)
         {
             if (elapsedSeconds <= 0f || float.IsNaN(elapsedSeconds) ||
                 float.IsInfinity(elapsedSeconds))
@@ -37,7 +38,7 @@ namespace OA.Simulation.Navigation
                 return;
             }
 
-            int bucket = Bucket(estimatedSteps, waypointCount);
+            int bucket = Bucket(estimatedSteps, waypointCount, requiresCorridorSearch);
             float sample = elapsedSeconds / WorkSteps(estimatedSteps, waypointCount);
             float previous = secondsPerWorkStep[bucket];
             secondsPerWorkStep[bucket] = previous > 0f
@@ -53,15 +54,15 @@ namespace OA.Simulation.Navigation
         private static float WorkSteps(int estimatedSteps, int waypointCount)
         {
             return Mathf.Max(1, estimatedSteps) *
-                (1f + Mathf.Min(16, Mathf.Max(0, waypointCount - 1)) * 0.08f);
+                (1f + Mathf.Min(16, Mathf.Max(0, waypointCount - 1)) * 0.12f);
         }
 
-        private static int Bucket(int steps, int waypoints)
+        private static int Bucket(int steps, int waypoints, bool requiresCorridorSearch)
         {
             int distanceBucket = steps < 8000 ? 0 : steps < 20000 ? 1 :
                 steps < 40000 ? 2 : 3;
             int queueBucket = waypoints <= 1 ? 0 : waypoints <= 3 ? 1 : 2;
-            return queueBucket * 4 + distanceBucket;
+            return (requiresCorridorSearch ? 12 : 0) + queueBucket * 4 + distanceBucket;
         }
     }
 }

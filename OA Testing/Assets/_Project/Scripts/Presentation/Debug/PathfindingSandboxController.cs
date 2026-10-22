@@ -96,6 +96,7 @@ namespace OA.Presentation.Debug
         private readonly List<Waypoint> routeWaypoints = new List<Waypoint>(32);
         private readonly List<Vector2> fullWorldPath = new List<Vector2>(512);
         private readonly List<float> fullWorldWaypointDistances = new List<float>(32);
+        private readonly List<int> fullWorldWaypointEndIndices = new List<int>(32);
         private readonly List<float> acceptedWaypointDistances = new List<float>(32);
         private readonly List<float> bestCandidateWaypointDistances = new List<float>(32);
         private readonly ShipRoute activeRoute = new ShipRoute();
@@ -140,6 +141,7 @@ namespace OA.Presentation.Debug
         private bool pendingAwaitingHandoff;
         private int pendingHandoffGeneration;
         private int pendingEstimatedPhysicalSteps;
+        private bool pendingRequiresCorridorSearch;
         private float pendingHandoffLead;
         private long pendingHandoffStep;
         private readonly ShipRoute handoffRoute = new ShipRoute();
@@ -154,6 +156,14 @@ namespace OA.Presentation.Debug
         private int pendingMaskHitsAtStart;
         private int pendingMaskMissesAtStart;
         private int pendingSnapshotRestarts;
+        private int pendingLocalRepairAttempts;
+        private int pendingLocalRepairsTotal;
+        private int pendingLastFailureLeg = -1;
+        private RouteGeometryCandidate pendingLastFailedCandidate;
+        private float pendingPredictionLimitSeconds;
+        private RoutePlanningReplay mapReplayRecipe = new RoutePlanningReplay();
+        private MovementState pendingOrderState;
+        private Vector2[] pendingRequestedWaypoints;
         private MovementState pendingInitialMovementState;
         private MovementSpeedMode pendingInitialSpeedMode;
         private float pendingBestExtraClearance;
@@ -166,6 +176,7 @@ namespace OA.Presentation.Debug
 
         public HexMapRuntime CurrentMap => map;
         public INavigationPathService CurrentPathService => pathService;
+        public string LastRouteReplayJson { get; private set; }
 
         // Resolves dependencies, builds the first map, rebuilds navigation, and places the ship.
         private void Awake()
@@ -375,6 +386,9 @@ namespace OA.Presentation.Debug
                 spawn,
                 goal);
 
+            RememberMapRecipe(seed, debugSettings.obstacleChance,
+                debugSettings.roughWaterChance, debugSettings.smoothingPasses, spawn, goal);
+
             RebuildNavigation();
 
             Vector2Int finalSpawn = FindClosestTraversableCell(spawn);
@@ -456,6 +470,7 @@ namespace OA.Presentation.Debug
             if (!generateFromDefinitionMetadata)
             {
                 map = mapDefinition.CreateRuntimeCopy();
+                mapReplayRecipe = new RoutePlanningReplay { MapDefinitionName = mapDefinition.name };
                 return;
             }
 
@@ -472,6 +487,24 @@ namespace OA.Presentation.Debug
                 mapDefinition.SmoothingPasses,
                 spawn,
                 goal);
+            RememberMapRecipe(mapDefinition.Seed, mapDefinition.ObstacleChance,
+                mapDefinition.RoughWaterChance, mapDefinition.SmoothingPasses, spawn, goal);
+        }
+
+        private void RememberMapRecipe(int seed, float obstacles, float roughWater,
+            int smoothing, Vector2Int spawn, Vector2Int goal)
+        {
+            mapReplayRecipe = new RoutePlanningReplay
+            {
+                GeneratedMap = true,
+                MapDefinitionName = mapDefinition != null ? mapDefinition.name : null,
+                MapSeed = seed,
+                ObstacleChance = obstacles,
+                RoughWaterChance = roughWater,
+                SmoothingPasses = smoothing,
+                SpawnCell = spawn,
+                GoalCell = goal
+            };
         }
 
 
@@ -920,6 +953,10 @@ namespace OA.Presentation.Debug
 
             if (resetSnapshotRestarts)
             {
+                pendingOrderState = shipAgent.CurrentMovementState;
+                pendingRequestedWaypoints = new Vector2[routeWaypoints.Count];
+                for (int i = 0; i < routeWaypoints.Count; i++)
+                    pendingRequestedWaypoints[i] = routeWaypoints[i].World;
                 pendingPlanningStopwatch = System.Diagnostics.Stopwatch.StartNew();
                 pendingPlanningCpuMilliseconds = 0d;
                 pendingPredictionCpuMilliseconds = 0d;
@@ -932,6 +969,7 @@ namespace OA.Presentation.Debug
                 pendingPhysicalSteps = 0;
                 pendingAStarLegs = 0;
                 pendingPlanFrames = 0;
+                pendingLocalRepairsTotal = 0;
                 pendingMaskHitsAtStart = pathService.TraversalMaskCacheHits;
                 pendingMaskMissesAtStart = pathService.TraversalMaskCacheMisses;
             }
@@ -969,6 +1007,8 @@ namespace OA.Presentation.Debug
                 pendingEstimatedPhysicalSteps = EstimatePhysicalPredictionSteps(
                     shipAgent.CurrentMovementState.Position,
                     pendingRouteWaypoints);
+                pendingRequiresCorridorSearch = RequiresCorridorSearch(
+                    shipAgent.CurrentMovementState.Position);
                 pendingHandoffLead = CalculateInitialHandoffLead(
                     pendingEstimatedPhysicalSteps,
                     pendingRouteWaypoints.Count);
@@ -1021,6 +1061,9 @@ namespace OA.Presentation.Debug
             pendingPlanSilent = silent;
             pendingRecoveryQueued = false;
             pendingCornerStopQueued = false;
+            pendingLocalRepairAttempts = 0;
+            pendingLastFailureLeg = -1;
+            pendingLastFailedCandidate = null;
             pendingGeometryUnavailable = false;
             pendingCandidateIndex = 0;
             pendingClearanceAttempt = 0;
@@ -1112,6 +1155,17 @@ namespace OA.Presentation.Debug
                             pendingLastFailurePosition = candidateRoute.FailurePosition;
                             pendingLastFailureTimeSeconds =
                                 candidateRoute.FailureTimeSeconds;
+                            pendingLastFailureLeg = FindFailureLeg(
+                                completed,
+                                pendingPrediction.ProgressWorld);
+                            pendingLastFailedCandidate = completed;
+
+                            if (candidateRoute.FailureReason ==
+                                    ShipRouteFailureReason.PredictedTrackBlocked &&
+                                TryQueueLocalRepair(completed))
+                            {
+                                continue;
+                            }
                         }
                     }
 
@@ -1128,6 +1182,15 @@ namespace OA.Presentation.Debug
 
                     if (!pendingRecoveryQueued)
                     {
+                        // A known shoreline collision merits a precise stop/turn
+                        // candidate before resimulating several slower copies.
+                        if (!pendingCornerStopQueued &&
+                            pendingLastFailureReason == ShipRouteFailureReason.PredictedTrackBlocked &&
+                            TryQueueCornerStopCandidate())
+                        {
+                            continue;
+                        }
+
                         pendingRecoveryQueued = true;
                         QueueRecoveryCandidates();
 
@@ -1150,11 +1213,8 @@ namespace OA.Presentation.Debug
 
                     if (!pendingCornerStopQueued)
                     {
-                        pendingCornerStopQueued = true;
-                        if (TryBuildFullGeometryRoute(pendingRequiredMask, true))
+                        if (TryQueueCornerStopCandidate())
                         {
-                            QueueCurrentGeometryCandidate(pendingRequiredMask, 0f, 1f, false, true, false);
-                            pendingCandidates[pendingCandidates.Count - 1].StopAtCorners = true;
                             continue;
                         }
                     }
@@ -1189,6 +1249,7 @@ namespace OA.Presentation.Debug
             }
 
             pendingPhysicalCandidates++;
+            pendingPredictionLimitSeconds = CalculatePredictionTimeBudgetSeconds(candidate);
             if (candidate.StopAtCorners)
             {
                 for (int i = 1; i < candidateRoute.ControlPoints.Count; i++)
@@ -1211,7 +1272,7 @@ namespace OA.Presentation.Debug
                 bestCandidateRoute.IsValid
                     ? bestCandidateRoute.EstimatedTimeSeconds
                     : float.PositiveInfinity,
-                CalculatePredictionTimeBudgetSeconds(candidate),
+                pendingPredictionLimitSeconds,
                 predictionStagnationSeconds);
         }
 
@@ -1369,11 +1430,93 @@ namespace OA.Presentation.Debug
             }
         }
 
+        private static int FindFailureLeg(RouteGeometryCandidate candidate, float progress)
+        {
+            for (int i = 0; i < candidate.WaypointDistances.Count; i++)
+            {
+                if (progress <= candidate.WaypointDistances[i] + 0.001f)
+                    return i;
+            }
+
+            return Mathf.Max(0, candidate.WaypointDistances.Count - 1);
+        }
+
+        private bool TryQueueCornerStopCandidate()
+        {
+            pendingCornerStopQueued = true;
+            if (pendingNormalCandidates.Count == 0) return false;
+
+            RouteGeometryCandidate source = pendingNormalCandidates[pendingNormalCandidates.Count - 1];
+            if (source.StopAtCorners) return false; // This exact fallback was already evaluated.
+
+            var cornerStop = new RouteGeometryCandidate();
+            cornerStop.CopyGeometryFrom(source, 1f, true);
+            cornerStop.StopAtCorners = true;
+            pendingCandidates.Add(cornerStop);
+            return true;
+        }
+
+        // Repair only the failed leg. A temporary local exclusion pushes its
+        // corridor away from the collision; all motion is still checked against
+        // the ship's unchanged required-water mask.
+        private bool TryQueueLocalRepair(RouteGeometryCandidate source)
+        {
+            if (pendingLocalRepairAttempts >= 2 || pendingLastFailureLeg < 0 ||
+                source.WaypointEndIndices.Count != pendingRouteWaypoints.Count ||
+                !map.TryWorldToCell(pendingLastFailurePosition, out Vector2Int collision))
+                return false;
+
+            int leg = pendingLastFailureLeg;
+            int startIndex = leg == 0 ? 0 : source.WaypointEndIndices[leg - 1];
+            int endIndex = source.WaypointEndIndices[leg];
+            if (!map.TryWorldToCell(source.Geometry[startIndex], out Vector2Int start) ||
+                !map.TryWorldToCell(source.Geometry[endIndex], out Vector2Int end))
+                return false;
+
+            pendingLocalRepairAttempts++;
+            pendingLocalRepairsTotal++;
+            bool[] blocked = (bool[])pendingRequiredMask.BlockedCells.Clone();
+            int radius = pendingLocalRepairAttempts;
+            for (int y = Mathf.Max(0, collision.y - radius);
+                 y <= Mathf.Min(map.Height - 1, collision.y + radius); y++)
+            {
+                for (int x = Mathf.Max(0, collision.x - radius - 1);
+                     x <= Mathf.Min(map.Width - 1, collision.x + radius + 1); x++)
+                {
+                    var cell = new Vector2Int(x, y);
+                    if (cell != start && cell != end &&
+                        HexMapRuntime.HexDistance(cell, collision) <= radius)
+                        blocked[map.GetIndex(x, y)] = true;
+                }
+            }
+
+            var localMask = new NavigationTraversalMask(
+                map, map.Version, pendingRequiredProfile, blocked);
+            if (!TryBuildFullGeometryRoute(localMask, true, source, leg)) return false;
+
+            var repaired = new RouteGeometryCandidate();
+            repaired.Geometry.AddRange(fullWorldPath);
+            repaired.WaypointDistances.AddRange(fullWorldWaypointDistances);
+            repaired.WaypointEndIndices.AddRange(fullWorldWaypointEndIndices);
+            repaired.PlanningMask = pendingRequiredMask;
+            repaired.TurnSpeedScale = 1f;
+            // A shoreline collision has already disproved an ordinary sweep.
+            // Validate the repaired corridor with precise stop/turn guidance
+            // immediately rather than running several complete sweeping trips.
+            repaired.StopAtCorners = true;
+            repaired.IsRecovery = true;
+            // Place the repair before already queued speed-only alternatives.
+            pendingCandidates.Insert(pendingCandidateIndex, repaired);
+            pendingNormalCandidates.Add(repaired);
+            return true;
+        }
+
         private bool TryBuildDirectGeometryRoute(
             NavigationTraversalMask requiredMask)
         {
             fullWorldPath.Clear();
             fullWorldWaypointDistances.Clear();
+            fullWorldWaypointEndIndices.Clear();
 
             Vector2 start = pendingInitialMovementState.Position;
             fullWorldPath.Add(start);
@@ -1404,6 +1547,7 @@ namespace OA.Presentation.Debug
 
                 fullWorldWaypointDistances.Add(
                     CalculatePolylineDistance(fullWorldPath));
+                fullWorldWaypointEndIndices.Add(fullWorldPath.Count - 1);
                 start = end;
             }
 
@@ -1421,6 +1565,7 @@ namespace OA.Presentation.Debug
             RouteGeometryCandidate candidate = new RouteGeometryCandidate();
             candidate.Geometry.AddRange(fullWorldPath);
             candidate.WaypointDistances.AddRange(fullWorldWaypointDistances);
+            candidate.WaypointEndIndices.AddRange(fullWorldWaypointEndIndices);
             candidate.PlanningMask = planningMask;
             candidate.ExtraClearance = extraClearance;
             candidate.TurnSpeedScale = turnSpeedScale;
@@ -1542,6 +1687,7 @@ namespace OA.Presentation.Debug
                     $"EstimatedPhysicalSteps={pendingEstimatedPhysicalSteps}. " +
                     $"ReservedHandoffLead={pendingHandoffLead:F2}s. " +
                     $"CornerStops={candidate.StopAtCorners}. HandoffRestarts={pendingSnapshotRestarts}. " +
+                    $"LocalRepairs={pendingLocalRepairsTotal}. " +
                     $"MaskCacheHits={pathService.TraversalMaskCacheHits - pendingMaskHitsAtStart}. " +
                     $"MaskCacheMisses={pathService.TraversalMaskCacheMisses - pendingMaskMissesAtStart}. " +
                     $"RenderBuildTime={activeRouteLine?.LastBuildMilliseconds ?? 0d:F2}ms.");
@@ -1603,6 +1749,19 @@ namespace OA.Presentation.Debug
                 Mathf.CeilToInt(distance / Mathf.Max(0.0001f, worldPerStep) * 1.15f));
         }
 
+        private bool RequiresCorridorSearch(Vector2 start)
+        {
+            for (int i = 0; i < pendingRouteWaypoints.Count; i++)
+            {
+                Vector2 end = pendingRouteWaypoints[i].World;
+                if (!RouteSegmentUtility.TryEvaluateSegment(map, pendingRequiredMask,
+                    start, end, out float cost) || cost > 1.0001f)
+                    return true;
+                start = end;
+            }
+            return false;
+        }
+
         private float CalculateInitialHandoffLead(
             int estimatedSteps,
             int waypointCount)
@@ -1613,7 +1772,8 @@ namespace OA.Presentation.Debug
                 estimatedPredictionStepsPerPlanningSecond,
                 planningHandoffLeadSeconds,
                 planningHandoffSafetySeconds,
-                maximumPlanningHandoffLeadSeconds);
+                maximumPlanningHandoffLeadSeconds,
+                pendingRequiresCorridorSearch);
         }
 
         private void RecordSuccessfulHandoffReservation()
@@ -1626,7 +1786,8 @@ namespace OA.Presentation.Debug
             planningTiming.RecordSuccess(
                 pendingEstimatedPhysicalSteps,
                 pendingRouteWaypoints.Count,
-                (float)pendingAttemptStopwatch.Elapsed.TotalSeconds);
+                (float)pendingAttemptStopwatch.Elapsed.TotalSeconds,
+                pendingRequiresCorridorSearch || pendingAStarLegs > 0);
         }
 
         private bool IsPendingSnapshotStale()
@@ -1658,6 +1819,7 @@ namespace OA.Presentation.Debug
         private void CompletePendingRouteFailure()
         {
             pendingPlanningStopwatch?.Stop();
+            LastRouteReplayJson = CapturePendingRouteReplay();
 
             if (!pendingPlanSilent)
             {
@@ -1670,15 +1832,23 @@ namespace OA.Presentation.Debug
                             pendingLastFailurePosition,
                             pendingLastFailureTimeSeconds);
 
-                LogStatus(
-                    reason +
+                UnityEngine.Debug.LogWarning(
+                    "[PathfindingSandbox] Route rejected. " + reason +
+                    $" FailedLeg={(pendingLastFailureLeg >= 0 ? (pendingLastFailureLeg + 1).ToString() : "unknown")}/{pendingRouteWaypoints.Count}. " +
+                    $"FailureReason={pendingLastFailureReason}. " +
                     $" InputToFailureWallTime={pendingPlanningStopwatch.Elapsed.TotalMilliseconds:F2}ms. " +
                     $"PlanningCpuTime={pendingPlanningCpuMilliseconds:F2}ms. " +
                     $"PredictionCpuTime={pendingPredictionCpuMilliseconds:F2}ms. " +
+                    $"AStarCpuTime={pendingAStarCpuMilliseconds:F2}ms. " +
+                    $"SmoothingCpuTime={pendingSmoothingCpuMilliseconds:F2}ms. " +
+                    $"HandoffRestarts={pendingSnapshotRestarts}. " +
+                    $"ReservedHandoffLead={pendingHandoffLead:F3}s. " +
+                    $"LocalRepairs={pendingLocalRepairsTotal}. " +
                     $"PlanFrames={pendingPlanFrames}. " +
                     $"AStarLegs={pendingAStarLegs}. " +
                     $"PhysicalCandidates={pendingPhysicalCandidates}. " +
-                    $"PhysicalSteps={pendingPhysicalSteps}.");
+                    $"PhysicalSteps={pendingPhysicalSteps}. " +
+                    $"Replay={LastRouteReplayJson}", this);
             }
 
             routeWaypoints.Clear();
@@ -1688,6 +1858,39 @@ namespace OA.Presentation.Debug
             pendingCandidates.Clear();
             pendingNormalCandidates.Clear();
             pendingRouteWaypoints.Clear();
+        }
+
+        private string CapturePendingRouteReplay()
+        {
+            var replay = JsonUtility.FromJson<RoutePlanningReplay>(JsonUtility.ToJson(mapReplayRecipe));
+            replay.Width = map.Width;
+            replay.Height = map.Height;
+            replay.CellSize = map.CellSize;
+            replay.WorldOrigin = map.GetWorldCenter(0, 0);
+            replay.ColumnStep = map.GetWorldCenter(1, 0) - replay.WorldOrigin;
+            replay.RowStep = (map.GetWorldCenter(0, 2) - replay.WorldOrigin) * 0.5f;
+            replay.OddRowOffset = map.GetWorldCenter(0, 1) - replay.WorldOrigin - replay.RowStep;
+            replay.OrderState = pendingOrderState;
+            replay.ForecastState = pendingInitialMovementState;
+            replay.SpeedMode = pendingInitialSpeedMode;
+            replay.FixedDeltaTime = Time.fixedDeltaTime;
+            replay.LookAheadDistance = shipAgent.LookAheadDistance;
+            replay.ArrivalDistance = shipAgent.WaypointReachDistance;
+            replay.MovementProfileJson = JsonUtility.ToJson(shipAgent.MovementProfile);
+            replay.RequestedWaypoints = pendingRequestedWaypoints;
+            replay.ResolvedWaypoints = new Vector2[pendingRouteWaypoints.Count];
+            for (int i = 0; i < pendingRouteWaypoints.Count; i++)
+                replay.ResolvedWaypoints[i] = pendingRouteWaypoints[i].World;
+            replay.FailedLeg = pendingLastFailureLeg;
+            replay.FailureReason = pendingLastFailureReason;
+            replay.FailurePosition = pendingLastFailurePosition;
+            replay.FailureTimeSeconds = pendingLastFailureTimeSeconds;
+            replay.FailedGeometry = pendingLastFailedCandidate?.Geometry.ToArray();
+            replay.CornerStops = pendingLastFailedCandidate != null && pendingLastFailedCandidate.StopAtCorners;
+            replay.TurnSpeedScale = pendingLastFailedCandidate?.TurnSpeedScale ?? 1f;
+            replay.PredictionLimitSeconds = pendingPredictionLimitSeconds;
+            replay.StagnationSeconds = predictionStagnationSeconds;
+            return JsonUtility.ToJson(replay);
         }
 
         private void CancelPendingRoutePlanning(bool stopOrderStopwatch = true)
@@ -1754,7 +1957,9 @@ namespace OA.Presentation.Debug
         // Stitches A* legs into one geometric candidate before the movement model evaluates it.
         private bool TryBuildFullGeometryRoute(
             NavigationTraversalMask planningMask,
-            bool silent)
+            bool silent,
+            RouteGeometryCandidate reusable = null,
+            int repairedLeg = -1)
         {
             Vector2 shipPosition = pendingInitialMovementState.Position;
             Vector2Int startCell;
@@ -1770,13 +1975,32 @@ namespace OA.Presentation.Debug
             startCell = FindClosestTraversableCell(startCell, planningMask);
             fullWorldPath.Clear();
             fullWorldWaypointDistances.Clear();
+            fullWorldWaypointEndIndices.Clear();
 
             Vector2Int legStartCell = startCell;
             Vector2 legStartWorld = shipPosition;
 
             for (int i = 0; i < pendingRouteWaypoints.Count; i++)
             {
+                if (reusable != null && i != repairedLeg)
+                {
+                    int first = i == 0 ? 0 : reusable.WaypointEndIndices[i - 1];
+                    int last = reusable.WaypointEndIndices[i];
+                    worldPath.Clear();
+                    for (int point = first; point <= last; point++)
+                        worldPath.Add(reusable.Geometry[point]);
+                    AppendWorldLeg(fullWorldPath, worldPath);
+                    fullWorldWaypointDistances.Add(CalculatePolylineDistance(fullWorldPath));
+                    fullWorldWaypointEndIndices.Add(fullWorldPath.Count - 1);
+                    legStartWorld = fullWorldPath[fullWorldPath.Count - 1];
+                    map.TryWorldToCell(legStartWorld, out legStartCell);
+                    continue;
+                }
+
                 Waypoint waypoint = pendingRouteWaypoints[i];
+                if (reusable != null &&
+                    (planningMask.IsBlocked(legStartCell) || planningMask.IsBlocked(waypoint.Cell)))
+                    return false;
                 Vector2Int legGoalCell = FindClosestTraversableCell(
                     waypoint.Cell,
                     planningMask);
@@ -1793,6 +2017,7 @@ namespace OA.Presentation.Debug
                     pathStartTimestamp);
                 if (!foundPath || cellPath.Count == 0)
                 {
+                    pendingLastFailureLeg = i;
                     if (!silent)
                     {
                         LogStatus($"No path found to waypoint {i + 1}.");
@@ -1822,6 +2047,7 @@ namespace OA.Presentation.Debug
                 AppendWorldLeg(fullWorldPath, worldPath);
                 fullWorldWaypointDistances.Add(
                     CalculatePolylineDistance(fullWorldPath));
+                fullWorldWaypointEndIndices.Add(fullWorldPath.Count - 1);
 
                 legStartCell = legGoalCell;
                 legStartWorld = fullWorldPath[fullWorldPath.Count - 1];
@@ -2429,6 +2655,7 @@ namespace OA.Presentation.Debug
             public bool StopAtCorners;
             public readonly List<Vector2> Geometry = new List<Vector2>(512);
             public readonly List<float> WaypointDistances = new List<float>(32);
+            public readonly List<int> WaypointEndIndices = new List<int>(32);
 
             public NavigationTraversalMask PlanningMask;
             public float ExtraClearance;
@@ -2443,6 +2670,7 @@ namespace OA.Presentation.Debug
             {
                 Geometry.AddRange(source.Geometry);
                 WaypointDistances.AddRange(source.WaypointDistances);
+                WaypointEndIndices.AddRange(source.WaypointEndIndices);
                 PlanningMask = source.PlanningMask;
                 ExtraClearance = source.ExtraClearance;
                 TurnSpeedScale = turnSpeedScale;
