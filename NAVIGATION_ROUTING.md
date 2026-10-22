@@ -1,4 +1,24 @@
-# Navigation reliability update — 2026-09-27
+# Navigation routing updates
+
+## Waypoint recovery and handoff update — 2026-10-22
+
+The live console revealed cases absent from the earlier benchmark: repeated rejected shoreline turns and a learned 1.72-second reservation that persisted after faster plans. The handoff estimator now learns recent successful attempt time, normalized by route work, in separate distance/queue-size/direct-versus-corridor groups. Faster samples lower the estimate. A missed handoff extends only the current order's reservation, and rebuilding the map clears timing history. Exact simulation-step switching is preserved.
+
+When physical prediction hits restricted water, the planner can make up to two local repairs per planning attempt. It searches only the failed waypoint leg using a temporary exclusion around the collision, reuses the other legs, preserves requested endpoints, and immediately validates precise stop/turn guidance. The required ship-clearance mask remains unchanged. Already-tested stop/turn geometry is not queued again before speed-only alternatives.
+
+Final rejected orders now produce a warning with the failing leg, phase timings, handoff restarts, local-repair count, and a `Replay={...}` JSON payload. The JSON includes the generated-map recipe (or original baked-map asset name), world-grid basis, order/forecast motion state, movement profile, waypoint queue, exact failed geometry, corner-stop mode, and prediction limits. `RoutePlanningReplay.RecreateGeneratedMap` and `CreateFailedCourse` support deterministic reproduction; load the original asset for baked/custom maps. Console leg numbers are one-based; the JSON `FailedLeg` index is zero-based. The controller also retains `LastRouteReplayJson` after a failure.
+
+Validation: all 28 authored EditMode cases passed in Unity 6000.3.7f1 using an isolated project containing the current runtime source, tests, and production map. The main Editor remained open. Coverage includes decreasing timing estimates, separation of direct/A* workloads, one-leg-only repairs without changing other waypoints or legal water, preservation of the accepted course after rejection, exact collision reproduction after JSON serialization, and moving four/five/six-waypoint coastal queues. The coastal tests advance fixed steps from elapsed wall time and include handoff waiting:
+
+| Waypoints | Plan ready | Input to applied | Handoff restarts |
+| --- | ---: | ---: | ---: |
+| 4 | 406 ms | 415 ms | 0 |
+| 5 | 473 ms | 552 ms | 0 |
+| 6 | 684 ms | 749 ms | 0 |
+
+These are automated test timings, not a guarantee of interactive frame pacing. Difficult queues still exceed half a second. The earlier seven long-distance cases also finished with zero restarts in the final run. The old console did not record the original full queues/states, so the new coastal fixtures exercise the reported regions rather than claiming to replay those exact clicks. Future failures include the missing reproduction data.
+
+Source checkpoints: `f46a282` (initial adaptive timing) and `ba31320` (calibrated workload timing, local recovery, replay warnings, and regressions). Logs/results are retained locally in `_codex_backups/2026-10-22_route_followup/`. The October 19 Windows ZIP below still contains its original build; it has not been rebuilt with this update.
 
 ## Performance update — 2026-10-19
 
