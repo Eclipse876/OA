@@ -30,14 +30,6 @@ namespace OA.Tools.Editor
                 System.IO.File.Exists(MapPath))
                 throw new InvalidOperationException("Refusing to overwrite existing map: " + MapPath);
 
-            UnitArchetypeDefinition garcia = LoadRequired<UnitArchetypeDefinition>(
-                "Assets/_Project/Data/Scenarios/Navigation/ShipArchetype_Main.asset");
-            UnitArchetypeDefinition enterprise = LoadRequired<UnitArchetypeDefinition>(
-                DataFolder + "/EnterpriseArchetype.asset");
-            TileBase deepWater = LoadGuid<TileBase>("18feb46b92ca7854baab2ca54fb4dc3a");
-            TileBase roughWater = LoadGuid<TileBase>("f12ce85544d1d6f4183728b1b405e06a");
-            TileBase obstacle = LoadGuid<TileBase>("19488b58fe65aa44da270ed068c26566");
-
             EnsureFolder("Assets/Scenes");
             EnsureFolder(DataFolder);
 
@@ -53,6 +45,12 @@ namespace OA.Tools.Editor
 
             try
             {
+                // A scene transition may unload assets held only in stack locals.
+                // Resolve every persistent dependency after the transition.
+                UnitArchetypeDefinition garcia = LoadRequired<UnitArchetypeDefinition>(
+                    "Assets/_Project/Data/Scenarios/Navigation/ShipArchetype_Main.asset");
+                UnitArchetypeDefinition enterprise = LoadRequired<UnitArchetypeDefinition>(
+                    DataFolder + "/EnterpriseArchetype.asset");
                 var mapDefinition = ScriptableObject.CreateInstance<HexMapDefinition>();
                 mapDefinition.name = "HexMapDefinition_UnitControl";
                 mapDefinition.ApplyFromRuntime(map, Seed, 0.016f, 0f, 4);
@@ -70,22 +68,7 @@ namespace OA.Tools.Editor
                 tileRenderer.sortingOrder = 0;
 
                 TilemapHexGridPresenter presenter = mapRoot.AddComponent<TilemapHexGridPresenter>();
-                Configure(presenter, serialized =>
-                {
-                    Property(serialized, "tilemap").objectReferenceValue = tilemap;
-                    Property(serialized, "previewDefinition").objectReferenceValue = mapDefinition;
-                    Property(serialized, "baseHexCellSize").vector2Value = new Vector2(0.8659766f, 1f);
-                    Property(serialized, "baseGridLocalScale").vector3Value = Vector3.one;
-                    Property(serialized, "deepWaterTile").objectReferenceValue = deepWater;
-                    Property(serialized, "roughWaterTile").objectReferenceValue = roughWater;
-                    Property(serialized, "obstacleTile").objectReferenceValue = obstacle;
-                    // Bake a lightweight base-map preview using persistent tiles.
-                    // Procedural overlay textures are generated only in Play mode.
-                    Property(serialized, "useProceduralTextureOverlay").boolValue = false;
-                });
-                presenter.BuildOrRefresh(map);
-                Configure(presenter, serialized =>
-                    Property(serialized, "useProceduralTextureOverlay").boolValue = true);
+                BakePreview(presenter, tilemap, mapDefinition, map);
 
                 var navigationObject = new GameObject("Navigation Service");
                 HexMapPathService pathService = navigationObject.AddComponent<HexMapPathService>();
@@ -143,6 +126,8 @@ namespace OA.Tools.Editor
                 });
 
                 AssetDatabase.CreateAsset(mapDefinition, MapPath);
+                ValidateShip(garciaUnit, false);
+                ValidateShip(enterpriseUnit, false);
                 AssetDatabase.SaveAssets();
                 if (!EditorSceneManager.SaveScene(scene, ScenePath))
                     throw new InvalidOperationException("Could not save " + ScenePath);
@@ -155,6 +140,129 @@ namespace OA.Tools.Editor
                 if (previousScene.IsValid() && previousScene.isLoaded)
                     SceneManager.SetActiveScene(previousScene);
             }
+        }
+
+        // Batch-only repair of the generated scene. It leaves other open scenes
+        // and saved unit placements untouched, and refuses unsaved scene edits.
+        public static void RepairPreview()
+        {
+            if (!Application.isBatchMode || EditorApplication.isPlayingOrWillChangePlaymode)
+                throw new InvalidOperationException("RepairPreview must run in batch Edit mode.");
+            LoadRequired<SceneAsset>(ScenePath);
+            Scene previousScene = SceneManager.GetActiveScene();
+            Scene scene = SceneManager.GetSceneByPath(ScenePath);
+            bool openedForRepair = !scene.IsValid() || !scene.isLoaded;
+            if (!openedForRepair && scene.isDirty)
+                throw new InvalidOperationException("Refusing to overwrite unsaved unit-control scene edits.");
+            if (openedForRepair)
+            {
+                bool emptyStartup = string.IsNullOrEmpty(previousScene.path) &&
+                    !previousScene.isDirty && previousScene.rootCount == 0;
+                scene = EditorSceneManager.OpenScene(ScenePath,
+                    emptyStartup ? OpenSceneMode.Single : OpenSceneMode.Additive);
+            }
+            SceneManager.SetActiveScene(scene);
+
+            try
+            {
+                HexMapDefinition definition = LoadRequired<HexMapDefinition>(MapPath);
+                TilemapHexGridPresenter presenter = null;
+                foreach (GameObject root in scene.GetRootGameObjects())
+                {
+                    foreach (TilemapHexGridPresenter candidate in root.GetComponentsInChildren<TilemapHexGridPresenter>(true))
+                    {
+                        if (presenter != null)
+                            throw new InvalidOperationException("Unit scene contains more than one grid presenter.");
+                        presenter = candidate;
+                    }
+                }
+                if (presenter == null)
+                    throw new InvalidOperationException("Unit scene has no grid presenter.");
+                Tilemap tilemap = presenter.GetComponentInChildren<Tilemap>(true);
+                if (tilemap == null)
+                    throw new InvalidOperationException("Unit scene has no terrain Tilemap.");
+
+                BakePreview(presenter, tilemap, definition, definition.CreateRuntimeCopy());
+                int unitCount = 0;
+                foreach (GameObject root in scene.GetRootGameObjects())
+                {
+                    foreach (SelectableShip unit in root.GetComponentsInChildren<SelectableShip>(true))
+                    {
+                        ValidateShip(unit, true);
+                        unitCount++;
+                    }
+                }
+                EditorSceneManager.MarkSceneDirty(scene);
+                if (!EditorSceneManager.SaveScene(scene, ScenePath))
+                    throw new InvalidOperationException("Could not save " + ScenePath);
+                Debug.Log($"[UnitControlSceneBuilder] Repaired preview: {definition.Width * definition.Height} tiles; " +
+                    $"verified {unitCount} ship bindings. Saved only {ScenePath}.");
+            }
+            finally
+            {
+                if (previousScene.IsValid() && previousScene.isLoaded)
+                    SceneManager.SetActiveScene(previousScene);
+                if (openedForRepair && previousScene.IsValid() && previousScene.isLoaded &&
+                    scene.IsValid() && scene.isLoaded)
+                    EditorSceneManager.CloseScene(scene, true);
+            }
+        }
+
+        private static void BakePreview(TilemapHexGridPresenter presenter, Tilemap tilemap,
+            HexMapDefinition definition, HexMapRuntime map)
+        {
+            TileBase deepWater = LoadGuid<TileBase>("18feb46b92ca7854baab2ca54fb4dc3a");
+            TileBase roughWater = LoadGuid<TileBase>("f12ce85544d1d6f4183728b1b405e06a");
+            TileBase obstacle = LoadGuid<TileBase>("19488b58fe65aa44da270ed068c26566");
+            if (!EditorUtility.IsPersistent(deepWater) || !EditorUtility.IsPersistent(roughWater) ||
+                !EditorUtility.IsPersistent(obstacle))
+                throw new InvalidOperationException("Preview terrain must use persistent tile assets.");
+
+            Configure(presenter, serialized =>
+            {
+                Property(serialized, "tilemap").objectReferenceValue = tilemap;
+                Property(serialized, "previewDefinition").objectReferenceValue = definition;
+                Property(serialized, "baseHexCellSize").vector2Value = new Vector2(0.8659766f, 1f);
+                Property(serialized, "baseGridLocalScale").vector3Value = Vector3.one;
+                Property(serialized, "deepWaterTile").objectReferenceValue = deepWater;
+                Property(serialized, "roughWaterTile").objectReferenceValue = roughWater;
+                Property(serialized, "obstacleTile").objectReferenceValue = obstacle;
+                Property(serialized, "useProceduralTextureOverlay").boolValue = false;
+            });
+            presenter.BuildOrRefresh(map);
+            for (int y = 0; y < map.Height; y++)
+                for (int x = 0; x < map.Width; x++)
+                    if (!tilemap.HasTile(new Vector3Int(x, y, 0)))
+                        throw new InvalidOperationException($"Preview failed to paint terrain cell ({x}, {y}).");
+            Configure(presenter, serialized =>
+                Property(serialized, "useProceduralTextureOverlay").boolValue = true);
+            EditorUtility.SetDirty(tilemap);
+            EditorUtility.SetDirty(tilemap.transform);
+            EditorUtility.SetDirty(tilemap.layoutGrid.transform);
+        }
+
+        private static void ValidateShip(SelectableShip unit, bool repairMissingAgentArchetype)
+        {
+            if (unit.Archetype == null || unit.Archetype.movementProfile == null ||
+                unit.Archetype.presentationProfile == null ||
+                unit.Archetype.presentationProfile.worldSprite == null || unit.Agent == null ||
+                unit.Hull == null || unit.Planner == null)
+                throw new InvalidOperationException("Unit has missing archetype, profile, agent, hull, or planner: " + unit.name);
+
+            var agent = new SerializedObject(unit.Agent);
+            UnityEngine.Object assignedArchetype = Property(agent, "archetype").objectReferenceValue;
+            if (assignedArchetype == null && repairMissingAgentArchetype)
+            {
+                unit.Agent.Initialize(unit.Archetype, unit.transform.position);
+                EditorUtility.SetDirty(unit.Agent);
+                EditorUtility.SetDirty(unit.Hull);
+                EditorUtility.SetDirty(unit.Hull.transform);
+                agent.Update();
+                assignedArchetype = Property(agent, "archetype").objectReferenceValue;
+            }
+            if (assignedArchetype != unit.Archetype ||
+                unit.Hull.sprite != unit.Archetype.presentationProfile.worldSprite)
+                throw new InvalidOperationException("Unit's agent archetype or hull sprite does not match: " + unit.name);
         }
 
         private static void Configure(UnityEngine.Object target, Action<SerializedObject> edit)
