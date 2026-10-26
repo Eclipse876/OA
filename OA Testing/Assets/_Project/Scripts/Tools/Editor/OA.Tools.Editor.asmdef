@@ -2,9 +2,7 @@
     "name": "OA.Tools.Editor",
     "rootNamespace": "",
     "references": [
-        "OA.Simulation",
-        "OA.Presentation",
-        "Gameplay"
+        "OA.Simulation"
     ],
     "includePlatforms": [
         "Editor"

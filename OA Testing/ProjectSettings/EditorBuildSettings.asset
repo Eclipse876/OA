@@ -6,10 +6,7 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Scenes/UnitControlTesting.unity
-    guid: 953eee033a0dbca489b6cdda13fe47c3
-  - enabled: 0
-    path: Assets/Scenes/PathfindingTestingScene.unity
+    path: Assets/Scenes/PathfindingTesting.unity
     guid: 3f5cd00fee0f28a4db8fe4db90d3f93a
   - enabled: 0
     path: Assets/Scenes/SampleScene.unity
