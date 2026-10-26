@@ -19,6 +19,9 @@ namespace OA.Presentation.Debug
     // Scene controller for the navigation sandbox. Big coordinator energy, but for boats.
     public sealed class PathfindingSandboxController : MonoBehaviour
     {
+        [SerializeField] private bool externallyDriven;
+        private bool routePresentationVisible = true;
+        private readonly List<Vector2> externalTransitHints = new List<Vector2>(2);
         // Scene references wired in from the prefab/scene. Most bugs here are just missing links.
         [Header("Scene References")]
         [SerializeField] private Camera sceneCamera;
@@ -177,10 +180,76 @@ namespace OA.Presentation.Debug
         public HexMapRuntime CurrentMap => map;
         public INavigationPathService CurrentPathService => pathService;
         public string LastRouteReplayJson { get; private set; }
+        public bool IsPlanning => hasPendingPlanning;
+        public Vector2? CurrentDestinationWorld => hasPendingPlanning && pendingRouteWaypoints.Count > 0
+            ? pendingRouteWaypoints[pendingRouteWaypoints.Count - 1].World : activeDestination?.World;
+
+        // A scene-level commander owns input, shared map setup, and the global
+        // planning budget. Each ship still owns its prediction and order queue.
+        public void PrepareExternalControl()
+        {
+            externallyDriven = true;
+        }
+
+        public void ConfigureExternal(HexMapRuntime sharedMap, INavigationPathService service,
+            INavigationGridPresenter presenter, ShipNavigationAgent agent, Camera camera,
+            RouteLineRenderer routeLine)
+        {
+            externallyDriven = true;
+            map = sharedMap;
+            pathService = service;
+            gridPresenter = presenter;
+            shipAgent = agent;
+            sceneCamera = camera;
+            activeRouteLine = routeLine;
+            showHoverTileReadout = false;
+            logStatus = false;
+            shipAgent.SetNavigationMap(map);
+            displayedNavigationProfile = CreateNavigationProfile();
+            displayedTraversalMask = pathService.GetTraversalMask(map, displayedNavigationProfile);
+            SetSelectionVisible(false);
+        }
+
+        public bool IssueMove(Vector2 world, bool append, bool insert,
+            IReadOnlyList<Vector2> transitHints = null)
+        {
+            if (!externallyDriven || map == null || shipAgent == null || !shipAgent.IsInitialized)
+                return false;
+            externalTransitHints.Clear();
+            if (!append && transitHints != null) externalTransitHints.AddRange(transitHints);
+            return map.TryWorldToCell(world, out Vector2Int cell) &&
+                HandleDestinationSelection(cell, world, append, insert);
+        }
+
+        public void SetSelectionVisible(bool visible)
+        {
+            routePresentationVisible = visible;
+            if (!visible) activeRouteLine?.Clear();
+            if (waypointMarkerRoot != null) waypointMarkerRoot.gameObject.SetActive(visible);
+        }
+
+        public void TickExternal(float budgetMilliseconds)
+        {
+            if (!externallyDriven) return;
+            CompleteScheduledRouteHandoff();
+            if (budgetMilliseconds > 0f)
+            {
+                planningBudgetMillisecondsPerFrame = budgetMilliseconds;
+                AdvancePendingRoutePlanning();
+            }
+            RetirePassedWaypoints();
+            HandleRouteCompletion();
+            if (routePresentationVisible)
+            {
+                UpdateActiveRouteLine();
+                UpdateWaypointMarkerScales();
+            }
+        }
 
         // Resolves dependencies, builds the first map, rebuilds navigation, and places the ship.
         private void Awake()
         {
+            if (externallyDriven) return;
             if (!ResolveDependencies())
             {
                 enabled = false;
@@ -210,6 +279,7 @@ namespace OA.Presentation.Debug
         // Per-frame sandbox loop: input, queued routes, and debug route visuals.
         private void Update()
         {
+            if (externallyDriven) return;
             CompleteScheduledRouteHandoff();
             HandleRerollHotkey();
             HandleFastMoveToggle();
@@ -244,6 +314,7 @@ namespace OA.Presentation.Debug
 
         private void OnGUI()
         {
+            if (externallyDriven) return;
             if (!showHoverTileReadout ||
                 map == null ||
                 sceneCamera == null ||
@@ -613,7 +684,7 @@ namespace OA.Presentation.Debug
         private void DisplayAppliedNavigationProfile(NavigationProfile profile)
         {
             displayedTraversalMask = pathService.GetTraversalMask(map, profile);
-            gridPresenter.BuildOrRefresh(
+            if (!externallyDriven) gridPresenter.BuildOrRefresh(
                 map,
                 displayedTraversalMask != null
                     ? displayedTraversalMask.BlockedCells
@@ -679,7 +750,7 @@ namespace OA.Presentation.Debug
             }
         }
 
-        // Handles click-to-move and optional shift-click waypoint queueing.
+        // Right-click movement; left-click is reserved for selection in RTS scenes.
         private void HandleClickToMoveInput()
         {
             bool wasPressed;
@@ -688,7 +759,7 @@ namespace OA.Presentation.Debug
             bool insertWaypointAtFront;
 
 #if ENABLE_INPUT_SYSTEM
-            wasPressed = Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
+            wasPressed = Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame;
             mouseScreen = wasPressed ? Mouse.current.position.ReadValue() : default;
             appendWaypoint = Keyboard.current != null &&
                              (Keyboard.current.leftShiftKey.isPressed || Keyboard.current.rightShiftKey.isPressed);
@@ -696,7 +767,7 @@ namespace OA.Presentation.Debug
                                     Keyboard.current != null &&
                                     (Keyboard.current.leftCtrlKey.isPressed || Keyboard.current.rightCtrlKey.isPressed);
 #else
-            wasPressed = Input.GetMouseButtonDown(0);
+            wasPressed = Input.GetMouseButtonDown(1);
             mouseScreen = wasPressed ? (Vector2)Input.mousePosition : default;
             appendWaypoint = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
             insertWaypointAtFront = appendWaypoint &&
@@ -868,7 +939,7 @@ namespace OA.Presentation.Debug
         }
 
         // Turns a clicked cell into either an immediate destination or a queued waypoint.
-        private void HandleDestinationSelection(
+        private bool HandleDestinationSelection(
             Vector2Int targetCell,
             Vector2 clickedWorld,
             bool appendWaypoint,
@@ -880,7 +951,7 @@ namespace OA.Presentation.Debug
                 !displayedTraversalMask.TryFindClosestReachableCell(startCell, clickedWorld, out Vector2Int resolvedCell))
             {
                 LogStatus("The ship has no navigable starting water for its current clearance.");
-                return;
+                return false;
             }
 
             if (resolvedCell != targetCell || !IsTraversableForSafety(targetCell))
@@ -921,10 +992,11 @@ namespace OA.Presentation.Debug
             {
                 RefreshWaypointMarkers();
                 UpdateQueuedRouteLine();
-                return;
+                return true;
             }
 
             // A failed append/replacement should leave an already valid course in service.
+            externalTransitHints.Clear();
             routeWaypoints.Clear();
             routeWaypoints.AddRange(previousRouteWaypoints);
 
@@ -934,6 +1006,7 @@ namespace OA.Presentation.Debug
             }
 
             UpdateQueuedRouteLine();
+            return false;
         }
 
         // Begins one continuous route through every requested waypoint.
@@ -1523,6 +1596,20 @@ namespace OA.Presentation.Debug
 
             for (int i = 0; i < pendingRouteWaypoints.Count; i++)
             {
+                if (i == 0 && externallyDriven)
+                    foreach (Vector2 hint in externalTransitHints)
+                    {
+                        if (!RouteSegmentUtility.TryEvaluateSegment(map, requiredMask,
+                            start, hint, out float hintCost) || hintCost > 1.0001f)
+                        {
+                            fullWorldPath.Clear();
+                            fullWorldWaypointDistances.Clear();
+                            return false;
+                        }
+                        if ((fullWorldPath[fullWorldPath.Count - 1] - hint).sqrMagnitude > 0.000001f)
+                            fullWorldPath.Add(hint);
+                        start = hint;
+                    }
                 Vector2 end = pendingRouteWaypoints[i].World;
 
                 if (!RouteSegmentUtility.TryEvaluateSegment(
@@ -1648,7 +1735,7 @@ namespace OA.Presentation.Debug
                 inputToAppliedMilliseconds - pendingPlanReadyWallMilliseconds);
             activeRoute.CopyFrom(route);
             activeRouteVisibleSampleIndex = 0;
-            activeRouteLine?.Draw(
+            if (routePresentationVisible) activeRouteLine?.Draw(
                 activeRoute.PredictedSamples,
                 shipAgent.MovementProfile.cruiseSpeedKnots,
                 shipAgent.MovementProfile.flankSpeedKnots);

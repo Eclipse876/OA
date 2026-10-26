@@ -36,6 +36,15 @@ namespace OA.Presentation.Debug
 
         public double LastBuildMilliseconds { get; private set; }
 
+        public void Configure(LineRenderer style, Camera camera, float pixels = 3f)
+        {
+            segmentPrefab = style;
+            referenceCamera = camera;
+            screenWidthPixels = pixels;
+            EnsureMeshOutput();
+            if (style != null) style.gameObject.SetActive(false);
+        }
+
         private void Awake()
         {
             EnsureMeshOutput();

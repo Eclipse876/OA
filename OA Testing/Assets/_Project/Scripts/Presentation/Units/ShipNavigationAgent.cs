@@ -97,6 +97,12 @@ namespace OA.Presentation.Units
         public float WaypointReachDistance => waypointReachDistance;
         public MovementProfileDefinition MovementProfile => Runtime != null ? Runtime.Archetype.movementProfile : null;
 
+        public void SetSteeringDistances(float lookAhead, float arrival)
+        {
+            lookAheadDistance = Mathf.Max(0.01f, lookAhead);
+            waypointReachDistance = Mathf.Max(0.001f, arrival);
+        }
+
         public void SetNavigationMap(HexMapRuntime map)
         {
             navigationMap = map;
@@ -118,7 +124,7 @@ namespace OA.Presentation.Units
         // Optional self-start for scene-placed ships that already have an archetype assigned.
         private void Start()
         {
-            if (initializeOnStart && archetype != null)
+            if (initializeOnStart && archetype != null && !IsInitialized)
             {
                 Initialize(archetype, GetPosition2D());
             }
