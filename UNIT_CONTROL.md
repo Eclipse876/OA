@@ -28,3 +28,9 @@ The commander shares one navigation service and an 8 ms prediction budget across
 Validation covers selection replacement/addition/clearing, selective movement and speed changes, queued/inserted orders, safe placement, distinct destination slots and actual arrivals, destroyed units, hidden routes, the assigned carrier profile in four directions, and the saved scene entering Play mode. Aircraft movement is the next separate pass.
 
 All 57 authored cases passed in Unity 6000.3.7f1 in an isolated validation project with the current runtime source, scene/assets, main package manifest, and production rendering settings. The scene contains all 3,072 base terrain tiles in Edit mode and repaints all cells at runtime. An offscreen URP player capture confirmed map, hull, selection-ring, and route rendering; it excludes the IMGUI menu. Hardware mouse interaction still needs a normal Editor playthrough. Results are retained in `_codex_backups/2026-10-26_unit_control/validated-tests.xml`.
+
+## Windows handoff
+
+`OA Testing/Builds/OA_UnitControl_Windows_2026-10-26_256b085.zip` contains the Windows x64 demo from runtime checkpoint `256b085` (36.79 MiB). Extract the entire archive and run `OA.exe`. It includes controls, validation notes, and per-file SHA256 sums; all 187 archive entries were verified against the build files. Test capture code and `DoNotShip` files are excluded. The clean distribution passed an eight-second headless startup check. The older pathfinding ZIP remains a separate build.
+
+Archive SHA256: `2ADCA603E4205C4A9898602708F615E0D3325BFAE48499515681828E95132ED4`.
