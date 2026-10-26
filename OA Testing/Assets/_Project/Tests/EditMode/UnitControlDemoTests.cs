@@ -10,6 +10,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.TestTools;
+using UnityEngine.Tilemaps;
 
 public sealed class UnitControlDemoTests
 {
@@ -242,6 +243,11 @@ public sealed class UnitControlDemoTests
             }
             Assert.AreEqual(2, ships.Count);
             Assert.IsNotNull(demo);
+            Tilemap terrain = null;
+            foreach (GameObject root in scene.GetRootGameObjects())
+                if (root.GetComponentInChildren<Tilemap>() is Tilemap foundTerrain) terrain = foundTerrain;
+            Assert.IsNotNull(terrain);
+            Assert.AreEqual(64 * 48, CountTiles(terrain), "Saved scene is missing its terrain preview.");
             var definition = AssetDatabase.LoadAssetAtPath<HexMapDefinition>(
                 "Assets/_Project/Data/Scenarios/UnitControl/HexMapDefinition_UnitControl.asset");
             Assert.AreEqual(64, definition.Width);
@@ -259,6 +265,8 @@ public sealed class UnitControlDemoTests
             foreach (var ship in ships)
             {
                 Assert.IsNotNull(ship.Hull.sprite);
+                Assert.IsNotNull(new SerializedObject(ship.Agent).FindProperty("archetype").objectReferenceValue,
+                    "Scene-placed agent lost its assigned archetype.");
                 Assert.IsFalse(ship.IsSelected);
                 Assert.AreEqual(0, ship.GetComponentsInChildren<Collider2D>().Length);
             }
@@ -289,6 +297,8 @@ public sealed class UnitControlDemoTests
         Assert.AreEqual(48, demo.Map.Height);
         Assert.AreEqual(2, demo.Units.Count);
         Assert.AreEqual(0, demo.SelectedUnits.Count);
+        var terrain = Object.FindFirstObjectByType<TilemapHexGridPresenter>().GetComponentInChildren<Tilemap>();
+        Assert.AreEqual(64 * 48, CountTiles(terrain), "Runtime map must paint every cell.");
         Assert.AreEqual(0, demo.MoveSelected(demo.Map.GetWorldCenter(15, 12), false, false));
         foreach (SelectableShip ship in demo.Units)
         {
@@ -314,6 +324,14 @@ public sealed class UnitControlDemoTests
 
     private static void FixedStep(ShipNavigationAgent agent) => typeof(ShipNavigationAgent)
         .GetMethod("FixedUpdate", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(agent, null);
+
+    private static int CountTiles(Tilemap tilemap)
+    {
+        int count = 0;
+        foreach (Vector3Int cell in tilemap.cellBounds.allPositionsWithin)
+            if (tilemap.HasTile(cell)) count++;
+        return count;
+    }
 
     private sealed class TestGrid : INavigationGridPresenter
     {

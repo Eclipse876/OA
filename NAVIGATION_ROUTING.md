@@ -1,5 +1,9 @@
 # Navigation routing updates
 
+## Selection and controls — 2026-10-26
+
+The new [unit control scene](UNIT_CONTROL.md) reuses this routing pipeline per ship on a 64×48 map. Left-click and box-drag select ships; only right-click issues movement. Shift-right-click appends and Ctrl-Shift-right-click inserts. The legacy large-map sandbox also now uses these right-click movement bindings; its current scene name is `PathfindingTestingScene.unity`. Historical left-click instructions below refer to the earlier version.
+
 ## Waypoint recovery and handoff update — 2026-10-22
 
 The live console revealed cases absent from the earlier benchmark: repeated rejected shoreline turns and a learned 1.72-second reservation that persisted after faster plans. The handoff estimator now learns recent successful attempt time, normalized by route work, in separate distance/queue-size/direct-versus-corridor groups. Faster samples lower the estimate. A missed handoff extends only the current order's reservation, and rebuilding the map clears timing history. Exact simulation-step switching is preserved.

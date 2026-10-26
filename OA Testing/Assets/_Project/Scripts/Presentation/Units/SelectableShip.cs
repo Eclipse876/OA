@@ -17,6 +17,10 @@ namespace OA.Presentation.Units
         private LineRenderer ring;
         private Material lineMaterial;
         private Camera worldCamera;
+        private Sprite pickSprite;
+        private Vector2[] pickVertices;
+        private ushort[] pickTriangles;
+        private Vector2[] projectedPickVertices;
         public bool IsSelected { get; private set; }
         public UnitArchetypeDefinition Archetype => archetype;
         public ShipNavigationAgent Agent => agent;
@@ -102,15 +106,75 @@ namespace OA.Presentation.Units
 
         public float ScreenPickDistance(Camera camera, Vector2 pointer)
         {
+            if (camera == null) return float.PositiveInfinity;
+            Sprite sprite = hull != null ? hull.sprite : null;
+            if (sprite != pickSprite)
+            {
+                pickSprite = sprite;
+                pickVertices = sprite != null ? sprite.vertices : null;
+                pickTriangles = sprite != null ? sprite.triangles : null;
+                projectedPickVertices = pickVertices != null ? new Vector2[pickVertices.Length] : null;
+            }
+
+            // Tight sprite triangles cover the visible beam at close zoom while
+            // excluding the transparent padding around the source image. The
+            // caller retains its 12-pixel minimum tolerance outside this mesh.
+            if (pickVertices != null && pickVertices.Length >= 3 &&
+                pickTriangles != null && pickTriangles.Length >= 3)
+            {
+                for (int i = 0; i < pickVertices.Length; i++)
+                {
+                    Vector2 vertex = pickVertices[i];
+                    if (hull.flipX) vertex.x = -vertex.x;
+                    if (hull.flipY) vertex.y = -vertex.y;
+                    Vector3 projected = camera.WorldToScreenPoint(hull.transform.TransformPoint(vertex));
+                    if (projected.z <= 0f) return float.PositiveInfinity;
+                    projectedPickVertices[i] = projected;
+                }
+
+                float nearest = float.PositiveInfinity;
+                for (int i = 0; i + 2 < pickTriangles.Length; i += 3)
+                {
+                    Vector2 a = projectedPickVertices[pickTriangles[i]];
+                    Vector2 b = projectedPickVertices[pickTriangles[i + 1]];
+                    Vector2 c = projectedPickVertices[pickTriangles[i + 2]];
+                    float area = Cross(b - a, c - a);
+                    float ab = Cross(b - a, pointer - a);
+                    float bc = Cross(c - b, pointer - b);
+                    float ca = Cross(a - c, pointer - c);
+                    if (Mathf.Abs(area) > 0.0001f &&
+                        ((ab >= 0f && bc >= 0f && ca >= 0f) ||
+                         (ab <= 0f && bc <= 0f && ca <= 0f))) return 0f;
+                    nearest = Mathf.Min(nearest, DistanceToSegmentSquared(pointer, a, b));
+                    nearest = Mathf.Min(nearest, DistanceToSegmentSquared(pointer, b, c));
+                    nearest = Mathf.Min(nearest, DistanceToSegmentSquared(pointer, c, a));
+                }
+                return Mathf.Sqrt(nearest);
+            }
+
+            // Missing/custom sprite geometry still gets a physically sized
+            // capsule rather than a widthless centerline or padded art bounds.
             Vector2 direction = MovementMath.HeadingDegreesToVector(agent.CurrentMovementState.HeadingDegrees);
             float halfLength = archetype.movementProfile.HalfLengthWorldUnits;
+            float halfBeam = halfLength * 0.22f;
             Vector2 position = transform.position;
-            Vector2 a = camera.WorldToScreenPoint(position - direction * halfLength);
-            Vector2 b = camera.WorldToScreenPoint(position + direction * halfLength);
+            Vector2 normal = new Vector2(-direction.y, direction.x);
+            Vector2 start = camera.WorldToScreenPoint(position - direction * (halfLength - halfBeam));
+            Vector2 end = camera.WorldToScreenPoint(position + direction * (halfLength - halfBeam));
+            Vector2 center = camera.WorldToScreenPoint(position);
+            Vector2 beamEdge = camera.WorldToScreenPoint(position + normal * halfBeam);
+            return Mathf.Max(0f, Mathf.Sqrt(DistanceToSegmentSquared(pointer, start, end)) -
+                Vector2.Distance(center, beamEdge));
+        }
+
+        private static float Cross(Vector2 a, Vector2 b) => a.x * b.y - a.y * b.x;
+
+        private static float DistanceToSegmentSquared(Vector2 point, Vector2 a, Vector2 b)
+        {
             Vector2 segment = b - a;
             float t = segment.sqrMagnitude > 0.001f
-                ? Mathf.Clamp01(Vector2.Dot(pointer - a, segment) / segment.sqrMagnitude) : 0f;
-            return Vector2.Distance(pointer, a + segment * t);
+                ? Mathf.Clamp01(Vector2.Dot(point - a, segment) / segment.sqrMagnitude) : 0f;
+            return (point - (a + segment * t)).sqrMagnitude;
         }
 
         private void LateUpdate()

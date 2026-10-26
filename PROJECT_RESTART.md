@@ -1,5 +1,7 @@
 # OA restart guide
 
+Current scene: [unit control demo](UNIT_CONTROL.md), added October 26. Open `OA Testing/Assets/Scenes/UnitControlTesting.unity` for the smaller map, Garcia/Enterprise, RTS selection, spawning, and right-click movement. It is now the first enabled build scene. The older sandbox was renamed to `PathfindingTestingScene.unity`. The historical assessment below predates this work.
+
 Navigation follow-up: see [the routing update](NAVIGATION_ROUTING.md) for destination snapping, moving handoff, October 19 performance work, and October 22 adaptive timing/local shoreline recovery with replayable failure diagnostics. The assessment below describes the September 23 baseline unless a newer note says otherwise.
 
 Reviewed 2026-09-23 against the working tree, Git history, scene/asset references, and the running Unity editor. This is a status assessment and proposed roadmap; the navigation and new movement systems below have not been implemented in this review.

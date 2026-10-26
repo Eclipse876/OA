@@ -387,8 +387,8 @@ namespace OA.Presentation.Debug
                     GUI.Label(new Rect(row.x + 56, row.y + 17, 268, 24), availableUnits[i].displayName);
                 }
             }
-            GUI.Box(new Rect(16, Screen.height - 72, Mathf.Min(710, Screen.width - 32), 56),
-                $"Selected: {selection.Count}    {status}\nLMB / drag: select  |  Shift: add  |  Ctrl-E: clear  |  RMB: move  |  Shift-RMB: queue  |  Ctrl-Shift-RMB: insert  |  F: speed");
+            GUI.Box(new Rect(16, Screen.height - 88, Mathf.Min(710, Screen.width - 32), 72),
+                $"Selected: {selection.Count}    {status}\nLMB / drag: select  |  Shift: add  |  Ctrl-E: clear\nRMB: move  |  Shift-RMB: queue  |  Ctrl-Shift-RMB: insert  |  F: speed");
             if (selecting && Vector2.Distance(dragStart, pointer) >= 6f)
             {
                 Rect box = SelectionRect(dragStart, pointer);
