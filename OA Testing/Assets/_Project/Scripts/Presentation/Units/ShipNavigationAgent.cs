@@ -89,6 +89,7 @@ namespace OA.Presentation.Units
         }
 
         public UnitRuntime Runtime { get; private set; }
+        public UnitArchetypeDefinition Archetype => archetype;
         public bool IsInitialized => Runtime != null;
         public MovementSpeedMode SpeedMode => speedMode;
         public MovementState CurrentMovementState => movementState;

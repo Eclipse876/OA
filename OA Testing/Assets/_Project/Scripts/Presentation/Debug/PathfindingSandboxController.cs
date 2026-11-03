@@ -43,6 +43,10 @@ namespace OA.Presentation.Debug
         [SerializeField, Min(1f)] private float finalWaypointMarkerScreenPixels = 30f;
         [SerializeField, Min(0.01f)] private float maximumWaypointMarkerWorldScale = 512f;
 
+        // Player input for unit selection.
+        [Header("Player Input")]
+        [SerializeField] private bool readPlayerInput = true;
+
         // Default cells and tuning for click routing, rerolls, and debug line drawing.
         [Header("Defaults")]
         [SerializeField] private Vector2Int guaranteedSpawnCell = new Vector2Int(2, 2);
@@ -211,9 +215,14 @@ namespace OA.Presentation.Debug
         private void Update()
         {
             CompleteScheduledRouteHandoff();
-            HandleRerollHotkey();
-            HandleFastMoveToggle();
-            HandleClickToMoveInput();
+
+            if (readPlayerInput)
+            {
+                HandleRerollHotkey();
+                HandleFastMoveToggle();
+                HandleClickToMoveInput();
+            }
+
             AdvancePendingRoutePlanning();
             RetirePassedWaypoints();
             HandleRouteCompletion();

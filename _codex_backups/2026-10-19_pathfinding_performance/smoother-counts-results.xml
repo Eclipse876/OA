@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="14" result="Passed" total="14" passed="14" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:45Z" duration="2.832482">
+  <test-suite type="TestSuite" id="1000" name="OA Testing" fullname="OA Testing" runstate="Runnable" testcasecount="18" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:45Z" duration="2.832482" total="14" passed="14" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1023" name="OA.Tests.EditMode.dll" fullname="D:/1 - Programming Master File/GitHub/OA/OA Testing/Library/ScriptAssemblies/OA.Tests.EditMode.dll" runstate="Runnable" testcasecount="18" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:45Z" duration="2.827919" total="14" passed="14" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="12408" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestFixture" id="1007" name="NavigationOrderTests" fullname="NavigationOrderTests" classname="NavigationOrderTests" runstate="Runnable" testcasecount="14" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:45Z" duration="2.827124" total="14" passed="14" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-case id="1009" name="AllowedSpeed_FromCurrentConstraintMatchesFullConstraintScan" fullname="NavigationOrderTests.AllowedSpeed_FromCurrentConstraintMatchesFullConstraintScan" methodname="AllowedSpeed_FromCurrentConstraintMatchesFullConstraintScan" classname="NavigationOrderTests" runstate="Runnable" seed="1849289688" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:42Z" duration="0.010875" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1017" name="AlreadyReachedDestination_IsAnArrivalRatherThanAnInvalidRoute" fullname="NavigationOrderTests.AlreadyReachedDestination_IsAnArrivalRatherThanAnInvalidRoute" methodname="AlreadyReachedDestination_IsAnArrivalRatherThanAnInvalidRoute" classname="NavigationOrderTests" runstate="Runnable" seed="453714389" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:42Z" duration="0.009054" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=384, Map=24x16, Draft=Shallow, SafetyRadius=0.00
+]]></output>
+        </test-case>
+        <test-case id="1019" name="CancelledScheduledRoute_DoesNotReplaceTheAcceptedCourse" fullname="NavigationOrderTests.CancelledScheduledRoute_DoesNotReplaceTheAcceptedCourse" methodname="CancelledScheduledRoute_DoesNotReplaceTheAcceptedCourse" classname="NavigationOrderTests" runstate="Runnable" seed="70055928" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:42Z" duration="0.004231" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1016" name="CornerStopRecovery_CompletesConfinedTurn" fullname="NavigationOrderTests.CornerStopRecovery_CompletesConfinedTurn" methodname="CornerStopRecovery_CompletesConfinedTurn" classname="NavigationOrderTests" runstate="Runnable" seed="1181555629" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:42Z" duration="0.012460" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=384, Map=24x16, Draft=Shallow, SafetyRadius=0.00
+]]></output>
+        </test-case>
+        <test-case id="1014" name="Destination_RejectsInvalidStartAndStaleMask_WithoutInventingACell" fullname="NavigationOrderTests.Destination_RejectsInvalidStartAndStaleMask_WithoutInventingACell" methodname="Destination_RejectsInvalidStartAndStaleMask_WithoutInventingACell" classname="NavigationOrderTests" runstate="Runnable" seed="1512475653" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:42Z" duration="0.000988" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=384, Map=24x16, Draft=Shallow, SafetyRadius=0.00
+]]></output>
+        </test-case>
+        <test-case id="1013" name="Destination_RespectsDraftAndClearance" fullname="NavigationOrderTests.Destination_RespectsDraftAndClearance" methodname="Destination_RespectsDraftAndClearance" classname="NavigationOrderTests" runstate="Runnable" seed="963944847" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:42Z" duration="0.001399" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=384, Map=24x16, Draft=Deep, SafetyRadius=2.00
+]]></output>
+        </test-case>
+        <test-suite type="ParameterizedMethod" id="1012" name="Destination_UsesClosestReachableWater_ForLandOrDisconnectedWater" fullname="NavigationOrderTests.Destination_UsesClosestReachableWater_ForLandOrDisconnectedWater" classname="NavigationOrderTests" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:42Z" duration="0.004517" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-case id="1010" name="Destination_UsesClosestReachableWater_ForLandOrDisconnectedWater(True)" fullname="NavigationOrderTests.Destination_UsesClosestReachableWater_ForLandOrDisconnectedWater(True)" methodname="Destination_UsesClosestReachableWater_ForLandOrDisconnectedWater" classname="NavigationOrderTests" runstate="Runnable" seed="1103463315" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:42Z" duration="0.001442" asserts="0">
+            <properties>
+              <property name="retryIteration" value="0" />
+              <property name="repeatIteration" value="0" />
+            </properties>
+            <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=384, Map=24x16, Draft=Shallow, SafetyRadius=0.00
+]]></output>
+          </test-case>
+          <test-case id="1011" name="Destination_UsesClosestReachableWater_ForLandOrDisconnectedWater(False)" fullname="NavigationOrderTests.Destination_UsesClosestReachableWater_ForLandOrDisconnectedWater(False)" methodname="Destination_UsesClosestReachableWater_ForLandOrDisconnectedWater" classname="NavigationOrderTests" runstate="Runnable" seed="2091666557" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:42Z" duration="0.000624" asserts="0">
+            <properties>
+              <property name="retryIteration" value="0" />
+              <property name="repeatIteration" value="0" />
+            </properties>
+            <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=384, Map=24x16, Draft=Shallow, SafetyRadius=0.00
+]]></output>
+          </test-case>
+        </test-suite>
+        <test-case id="1018" name="LastLeg_KeepsLocalSteeringInsteadOfCuttingAcrossToDestination" fullname="NavigationOrderTests.LastLeg_KeepsLocalSteeringInsteadOfCuttingAcrossToDestination" methodname="LastLeg_KeepsLocalSteeringInsteadOfCuttingAcrossToDestination" classname="NavigationOrderTests" runstate="Runnable" seed="1512701391" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:42Z" duration="0.000502" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1020" name="MovingHandoff_ForecastMatchesLiveState_AndSwitchesOnReservedStep" fullname="NavigationOrderTests.MovingHandoff_ForecastMatchesLiveState_AndSwitchesOnReservedStep" methodname="MovingHandoff_ForecastMatchesLiveState_AndSwitchesOnReservedStep" classname="NavigationOrderTests" runstate="Runnable" seed="1051538851" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:42Z" duration="0.001085" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1021" name="MovingOrder_LandClickAndRapidAppend_AreRetainedAndCommitted" fullname="NavigationOrderTests.MovingOrder_LandClickAndRapidAppend_AreRetainedAndCommitted" methodname="MovingOrder_LandClickAndRapidAppend_AreRetainedAndCommitted" classname="NavigationOrderTests" runstate="Runnable" seed="543837634" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:42Z" duration="0.028761" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=2000, Map=100x20, Draft=Shallow, SafetyRadius=2.03
+]]></output>
+        </test-case>
+        <test-case id="1015" name="Prediction_AllowsLongJourneysBeyondOldStepCeiling" fullname="NavigationOrderTests.Prediction_AllowsLongJourneysBeyondOldStepCeiling" methodname="Prediction_AllowsLongJourneysBeyondOldStepCeiling" classname="NavigationOrderTests" runstate="Runnable" seed="1821096910" result="Passed" start-time="2026-10-19 19:36:42Z" end-time="2026-10-19 19:36:43Z" duration="0.628557" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=512, Map=64x8, Draft=Shallow, SafetyRadius=0.00
+]]></output>
+        </test-case>
+        <test-case id="1022" name="ScaledGeneratedMap_LongMovingOrdersAndLandClicks_CommitReachableRoutes" fullname="NavigationOrderTests.ScaledGeneratedMap_LongMovingOrdersAndLandClicks_CommitReachableRoutes" methodname="ScaledGeneratedMap_LongMovingOrdersAndLandClicks_CommitReachableRoutes" classname="NavigationOrderTests" runstate="Runnable" seed="378820263" result="Passed" start-time="2026-10-19 19:36:43Z" end-time="2026-10-19 19:36:45Z" duration="2.099350" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=500000, Map=1000x500, Draft=Shallow, SafetyRadius=2.03
+(990, 490): frames=38, steps=93656, restarts=0, lead=1.081s, cpu=386.38ms, predictionCpu=223.32ms, endpointCpu=4.62ms, aStarCpu=136.95ms, smoothingCpu=14.05ms, cells=1234, geometry=18, guidance=18
+(500, 250): frames=20, steps=45691, restarts=0, lead=0.585s, cpu=162.49ms, predictionCpu=111.12ms, endpointCpu=4.90ms, aStarCpu=36.56ms, smoothingCpu=5.14ms, cells=623, geometry=11, guidance=11
+(30, 450): frames=13, steps=31541, restarts=0, lead=0.442s, cpu=81.48ms, predictionCpu=72.35ms, endpointCpu=4.71ms, aStarCpu=0.00ms, smoothingCpu=0.00ms, cells=623, geometry=2, guidance=2
+(900, 50): frames=28, steps=72877, restarts=0, lead=0.916s, cpu=181.95ms, predictionCpu=167.20ms, endpointCpu=4.92ms, aStarCpu=0.00ms, smoothingCpu=0.00ms, cells=623, geometry=2, guidance=2
+(300, 300): frames=15, steps=33223, restarts=0, lead=0.445s, cpu=111.14ms, predictionCpu=79.83ms, endpointCpu=4.90ms, aStarCpu=19.39ms, smoothingCpu=4.22ms, cells=445, geometry=11, guidance=11
+(800, 400): frames=36, steps=76926, restarts=0, lead=0.887s, cpu=322.93ms, predictionCpu=208.55ms, endpointCpu=4.82ms, aStarCpu=92.70ms, smoothingCpu=10.52ms, cells=993, geometry=17, guidance=17
+(728, 0): frames=22, steps=58468, restarts=0, lead=0.751s, cpu=144.08ms, predictionCpu=131.81ms, endpointCpu=4.89ms, aStarCpu=0.00ms, smoothingCpu=0.00ms, cells=993, geometry=2, guidance=2
+]]></output>
+        </test-case>
+        <test-case id="1008" name="WorldToCell_SequentialLookupsMatchFullNearestCenterSearch" fullname="NavigationOrderTests.WorldToCell_SequentialLookupsMatchFullNearestCenterSearch" methodname="WorldToCell_SequentialLookupsMatchFullNearestCenterSearch" classname="NavigationOrderTests" runstate="Runnable" seed="1543009322" result="Passed" start-time="2026-10-19 19:36:45Z" end-time="2026-10-19 19:36:45Z" duration="0.015509" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[Saving results to: C:/Users/Admin/AppData/LocalLow/DefaultCompany/OA Testing\TestResults.xml
+]]></output>
+        </test-case>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

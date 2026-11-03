@@ -1,0 +1,212 @@
+[
+  {
+    "Path": "OA Testing/.plastic/plastic.changes",
+    "Exists": true,
+    "SHA256": "8CFDAEDA195CFB29742F68BEBE344AAECBC0C41B8D77FBC0B13DFD4AD10C23B7"
+  },
+  {
+    "Path": "OA Testing/.plastic/plastic.wktree",
+    "Exists": true,
+    "SHA256": "7FF8C0302D9104B536DF1F4EBA271AE555F60650C10A1D3032AD3EC654A6AC84"
+  },
+  {
+    "Path": "OA Testing/Assets/Scenes/PathfindingTesting.unity",
+    "Exists": false,
+    "SHA256": null
+  },
+  {
+    "Path": "OA Testing/Assets/Scenes/PathfindingTesting.unity.meta",
+    "Exists": false,
+    "SHA256": null
+  },
+  {
+    "Path": "OA Testing/Assets/Scenes/PathfindingTestingScene.unity",
+    "Exists": true,
+    "SHA256": "7018A39D40A9D494D83A45847887C7DC490517BAF21412FDE160BBD11FD995B6"
+  },
+  {
+    "Path": "OA Testing/Assets/Scenes/PathfindingTestingScene.unity.meta",
+    "Exists": true,
+    "SHA256": "9348871D8DC475B742BF62CFD2F34730CB1CD0A3638E99BF6A993DC1049E5D2C"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo04b_TerritoryTexture/Scene.meta",
+    "Exists": true,
+    "SHA256": "3F988AB4C4B4F74DC8452B2B3E8118E9F299E5C85D4FB4C8A34929E8DAFDFE0C"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo04b_TerritoryTexture/Scene/LightingData.asset",
+    "Exists": true,
+    "SHA256": "38043AE1F3EDDA30BA96645D5194955514ECF3C20254637AE91BC56763B34247"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo04b_TerritoryTexture/Scene/LightingData.asset.meta",
+    "Exists": true,
+    "SHA256": "7480EA8DB23FE2875373F2BBDA040EF456A8FC0FEBD4462B6D6693A1D4849AD5"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo04b_TerritoryTexture/Scene/ReflectionProbe-0.exr",
+    "Exists": true,
+    "SHA256": "EDD872FC7EF0FF123988605C461FCCE608F8E0135811535C8E6F3FE672E1FB97"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo04b_TerritoryTexture/Scene/ReflectionProbe-0.exr.meta",
+    "Exists": true,
+    "SHA256": "E3FF564D891D19D868F719DCFC48170323827855BDB6444938C2073F6FA2640B"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo05_CellsColoring/Scene.meta",
+    "Exists": true,
+    "SHA256": "7D74428526F1F66F821DD67D15F744CDF3D79051A1CF943E9C05340858200EA1"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo05_CellsColoring/Scene/LightingData.asset",
+    "Exists": true,
+    "SHA256": "EE90B4739C92E534435136E3411B3DE212699F43E65BA85BA5BDA5E2D09A5B1E"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo05_CellsColoring/Scene/LightingData.asset.meta",
+    "Exists": true,
+    "SHA256": "8654B7896818943EB6E64BB597D6A466DC3FCE4B2E3FEDDB45F3273830813FCF"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo05_CellsColoring/Scene/ReflectionProbe-0.exr",
+    "Exists": true,
+    "SHA256": "EDD872FC7EF0FF123988605C461FCCE608F8E0135811535C8E6F3FE672E1FB97"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo05_CellsColoring/Scene/ReflectionProbe-0.exr.meta",
+    "Exists": true,
+    "SHA256": "25FF4AEFCDF37C023451A7043FEEBCE8B0B4C8855ABE7F2408DEDDE8BC8DD4E2"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo13_TerritoryByTexture/Scene.meta",
+    "Exists": true,
+    "SHA256": "970233E56FB080BDEA40E9ED00231BFF45A10479C51E6B0D66C0FEB67BD6D86E"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo13_TerritoryByTexture/Scene/LightingData.asset",
+    "Exists": true,
+    "SHA256": "AC46B86CC6ABE70C33FD7067E971DD0E029CAE3FD1A10EDE196BD26C5D10792B"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo13_TerritoryByTexture/Scene/LightingData.asset.meta",
+    "Exists": true,
+    "SHA256": "CF50E4F2DF81ED247C0A696DDCE3932A3CFE7BAB1ECBE4BDE0D2ECE6BCAC0EA4"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo13_TerritoryByTexture/Scene/ReflectionProbe-0.exr",
+    "Exists": true,
+    "SHA256": "EDD872FC7EF0FF123988605C461FCCE608F8E0135811535C8E6F3FE672E1FB97"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo13_TerritoryByTexture/Scene/ReflectionProbe-0.exr.meta",
+    "Exists": true,
+    "SHA256": "B2EF502D1855B6950F8DE104ADFED686639A1950B765844EE8D7994C3D324689"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo14_TerrainPathFinding/Scene.meta",
+    "Exists": true,
+    "SHA256": "B745F69E25608484E9B4C25ADBA57CC5420AA8D4BC2A6483111396D00A0E8695"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo14_TerrainPathFinding/Scene/LightingData.asset",
+    "Exists": true,
+    "SHA256": "411395318171E6203C15D3824A3FA05F134898F6F0EEAE2F3BC8926688EE7938"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo14_TerrainPathFinding/Scene/LightingData.asset.meta",
+    "Exists": true,
+    "SHA256": "15558C97C474229050B14846C72D5E9B8F5A02A8CA833752CCC67BB7033CC0FD"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo14_TerrainPathFinding/Scene/ReflectionProbe-0.exr",
+    "Exists": true,
+    "SHA256": "EDD872FC7EF0FF123988605C461FCCE608F8E0135811535C8E6F3FE672E1FB97"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo14_TerrainPathFinding/Scene/ReflectionProbe-0.exr.meta",
+    "Exists": true,
+    "SHA256": "4F1A3A82BC63A89DD23596551C02FE78886542D3989B7EB5DB76993D132AD554"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo15_RuntimeGridCreation/Scene.meta",
+    "Exists": true,
+    "SHA256": "9203BAEA9163DBF6A0908A2ED8920BB7CB3A7C9F2D7E92B1767FF12AB10967E8"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo15_RuntimeGridCreation/Scene/LightingData.asset",
+    "Exists": true,
+    "SHA256": "B804138EDCCAE5BF51DFCD50AF7984F305FDFA05A07C1F3E259C06DCB3BA221B"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo15_RuntimeGridCreation/Scene/LightingData.asset.meta",
+    "Exists": true,
+    "SHA256": "D2D67C8489CCF0146B36808957EEF9B70FAAA3EB87476E1490D6FB3278D8072B"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo15_RuntimeGridCreation/Scene/ReflectionProbe-0.exr",
+    "Exists": true,
+    "SHA256": "EDD872FC7EF0FF123988605C461FCCE608F8E0135811535C8E6F3FE672E1FB97"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo15_RuntimeGridCreation/Scene/ReflectionProbe-0.exr.meta",
+    "Exists": true,
+    "SHA256": "E1B9AF7032904013F95EB8ACD7D8992CAFDB6B751245228E9EDB2A0484D65D35"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo27_TerritoryInteriorBorders/Scene.meta",
+    "Exists": true,
+    "SHA256": "E0C1A49BA4E46CA5CA4370547C7FF423F10BF738C151C6C1C0D6B41D885D4D82"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo27_TerritoryInteriorBorders/Scene/LightingData.asset",
+    "Exists": true,
+    "SHA256": "F12E5D446B0F28071CAD27F0BB5FCD80B8A85F95F81BAAF149C958D5C11E41EF"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo27_TerritoryInteriorBorders/Scene/LightingData.asset.meta",
+    "Exists": true,
+    "SHA256": "BC7DCE3C6EE1ACB749CFD0ADF981D1B955E9484210B13906A2400DCE7AAA71F3"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo27_TerritoryInteriorBorders/Scene/ReflectionProbe-0.exr",
+    "Exists": true,
+    "SHA256": "EDD872FC7EF0FF123988605C461FCCE608F8E0135811535C8E6F3FE672E1FB97"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo27_TerritoryInteriorBorders/Scene/ReflectionProbe-0.exr.meta",
+    "Exists": true,
+    "SHA256": "51007BE23C18B1B4845570F6B3A16212B93968534AFA0A9449FFE01C3A513D2B"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo34_AsyncPathFinding/Scene.meta",
+    "Exists": true,
+    "SHA256": "9542087991D3D18ECF8B4D35F421544F69BB0D9F9379488195E23E99C2CECA24"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo34_AsyncPathFinding/Scene/LightingData.asset",
+    "Exists": true,
+    "SHA256": "C92A5DF4E225733EAE61DBDEBCF22F4856E732C82E2F50791471A48880BF8CD9"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo34_AsyncPathFinding/Scene/LightingData.asset.meta",
+    "Exists": true,
+    "SHA256": "BC896629D32F7C9E6BCE6653B5C7B0283821AB62BFEBC84D60A8A92BCB5179B5"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo34_AsyncPathFinding/Scene/ReflectionProbe-0.exr",
+    "Exists": true,
+    "SHA256": "EDD872FC7EF0FF123988605C461FCCE608F8E0135811535C8E6F3FE672E1FB97"
+  },
+  {
+    "Path": "OA Testing/Assets/TerrainGridSystem/Demos/Demo34_AsyncPathFinding/Scene/ReflectionProbe-0.exr.meta",
+    "Exists": true,
+    "SHA256": "05BB8F718503B87C176C4543629BAE8A292A8DBCE28A332B12D9FC67ABEEF914"
+  },
+  {
+    "Path": "OA Testing/OA Testing.slnx",
+    "Exists": true,
+    "SHA256": "6E7EA4D0867FA5BF00229CEE7EB819DA17FDE51311982EA80E98BD5CE2876F8F"
+  }
+]

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="6" result="Passed" total="6" passed="6" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-10-26 06:02:06Z" end-time="2026-10-26 06:02:06Z" duration="0.1706824">
+  <test-suite type="TestSuite" id="1000" name="2026-09-27_navigation_validation" fullname="2026-09-27_navigation_validation" runstate="Runnable" testcasecount="46" result="Passed" start-time="2026-10-26 06:02:06Z" end-time="2026-10-26 06:02:06Z" duration="0.170682" total="6" passed="6" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1054" name="OA.Tests.EditMode.dll" fullname="D:/1 - Programming Master File/GitHub/OA/.utmp/unit-control-validation-20261026/Library/ScriptAssemblies/OA.Tests.EditMode.dll" runstate="Runnable" testcasecount="46" result="Passed" start-time="2026-10-26 06:02:06Z" end-time="2026-10-26 06:02:06Z" duration="0.105872" total="6" passed="6" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="10112" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestFixture" id="1039" name="UnitControlDemoTests" fullname="UnitControlDemoTests" classname="UnitControlDemoTests" runstate="Runnable" testcasecount="6" result="Passed" start-time="2026-10-26 06:02:06Z" end-time="2026-10-26 06:02:06Z" duration="0.104288" total="6" passed="6" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-case id="1042" name="AppendedAndInsertedOrdersStayWithSelectedUnits_AndSpeedToggleIsSelective" fullname="UnitControlDemoTests.AppendedAndInsertedOrdersStayWithSelectedUnits_AndSpeedToggleIsSelective" methodname="AppendedAndInsertedOrdersStayWithSelectedUnits_AndSpeedToggleIsSelective" classname="UnitControlDemoTests" runstate="Runnable" seed="1947104699" result="Passed" start-time="2026-10-26 06:02:05Z" end-time="2026-10-26 06:02:05Z" duration="0.045728" asserts="0">
+          <properties />
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=768, Map=32x24, Draft=Shallow, SafetyRadius=0.00
+]]></output>
+        </test-case>
+        <test-case id="1041" name="GroupOrdersUseDistinctSlots_OnlySelectedShipsMove_AndDeselectKeepsOrders" fullname="UnitControlDemoTests.GroupOrdersUseDistinctSlots_OnlySelectedShipsMove_AndDeselectKeepsOrders" methodname="GroupOrdersUseDistinctSlots_OnlySelectedShipsMove_AndDeselectKeepsOrders" classname="UnitControlDemoTests" runstate="Runnable" seed="1019334785" result="Passed" start-time="2026-10-26 06:02:05Z" end-time="2026-10-26 06:02:05Z" duration="0.025933" asserts="0">
+          <properties />
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=768, Map=32x24, Draft=Shallow, SafetyRadius=0.00
+]]></output>
+        </test-case>
+        <test-case id="1044" name="NewSceneContainsTwoShipsAndSmallMap_WithDistinctCarrierProfile" fullname="UnitControlDemoTests.NewSceneContainsTwoShipsAndSmallMap_WithDistinctCarrierProfile" methodname="NewSceneContainsTwoShipsAndSmallMap_WithDistinctCarrierProfile" classname="UnitControlDemoTests" runstate="Runnable" seed="498431368" result="Passed" start-time="2026-10-26 06:02:05Z" end-time="2026-10-26 06:02:05Z" duration="0.012642" asserts="0">
+          <properties />
+        </test-case>
+        <test-case id="1043" name="PlacementRejectsLandOffMapAndDraft_CancelsAndSpawnsUnselected" fullname="UnitControlDemoTests.PlacementRejectsLandOffMapAndDraft_CancelsAndSpawnsUnselected" methodname="PlacementRejectsLandOffMapAndDraft_CancelsAndSpawnsUnselected" classname="UnitControlDemoTests" runstate="Runnable" seed="2112855649" result="Passed" start-time="2026-10-26 06:02:05Z" end-time="2026-10-26 06:02:05Z" duration="0.002068" asserts="0">
+          <properties />
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=768, Map=32x24, Draft=Shallow, SafetyRadius=0.00
+]]></output>
+        </test-case>
+        <test-case id="1045" name="SceneRuntimeBootsUnselected_AndBothShipsAcceptSelectiveOrders" fullname="UnitControlDemoTests.SceneRuntimeBootsUnselected_AndBothShipsAcceptSelectiveOrders" methodname="SceneRuntimeBootsUnselected_AndBothShipsAcceptSelectiveOrders" classname="UnitControlDemoTests" runstate="Runnable" seed="1519595096" result="Passed" start-time="2026-10-26 06:02:05Z" end-time="2026-10-26 06:02:06Z" duration="1.267543" asserts="0">
+          <properties>
+            <property name="_JOINTYPE" value="UnityCombinatorial" />
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1040" name="SelectionStartsEmpty_ReplacesAddsBoxesAndClears_WithoutIssuingMovement" fullname="UnitControlDemoTests.SelectionStartsEmpty_ReplacesAddsBoxesAndClears_WithoutIssuingMovement" methodname="SelectionStartsEmpty_ReplacesAddsBoxesAndClears_WithoutIssuingMovement" classname="UnitControlDemoTests" runstate="Runnable" seed="1149885699" result="Passed" start-time="2026-10-26 06:02:06Z" end-time="2026-10-26 06:02:06Z" duration="0.007900" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=768, Map=32x24, Draft=Shallow, SafetyRadius=0.00
+Saving results to: D:\1 - Programming Master File\GitHub\OA\_codex_backups\2026-10-26_unit_control\carrier-profile-results.xml
+]]></output>
+        </test-case>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

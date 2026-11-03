@@ -1,0 +1,46 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 83c3a2876a43f2e459b08be8927c04b4, type: 3}
+  m_Name: MovementProfile_Enterprise
+  m_EditorClassIdentifier: OA.Simulation::OA.Simulation.Units.MovementProfileDefinition
+  metersPerWorldUnit: 31.034483
+  simulationSecondsPerRealSecond: 60
+  lengthMeters: 342
+  displacementTons: 90000
+  draftClass: 1
+  depthMeters: 12
+  crewRequired: 50
+  crewComplement: 100
+  cruiseSpeedKnots: 26
+  flankSpeedKnots: 38
+  accelerationKnotsPerSecond: 0.05
+  decelerationKnotsPerSecond: 0.1
+  maxDecelerationKnotsPerSecond: 0.2
+  agility: 1
+  useDebugHandlingOverrides: 0
+  debugRudderShiftTimeSeconds: 5
+  debugYawAccelerationDegreesPerSecondSquared: 1
+  debugYawDampingPerSecond: 1
+  debugVelocityAlignmentTimeSeconds: 8
+  debugMaxDriftAngleDegrees: 12
+  debugTacticalDiameterAtCruiseLengths: 4
+  debugTacticalDiameterAtFlankLengths: 5
+  debugTurnSpeedLossFactor: 0.015
+  debugTightTurnSpeedMultiplier: 0.65
+  debugMinimumTacticalDiameterLengths: 0.25
+  safetyRadius: 0
+  stoppingDistance: 0.1
+  maxSpeed: 10
+  acceleration: 5
+  deceleration: 10
+  turnRateDegreesPerSecond: 180
+  turningRadius: 2.5

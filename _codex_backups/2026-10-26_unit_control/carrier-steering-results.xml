@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="6" result="Failed(Child)" total="6" passed="5" failed="1" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-10-26 06:00:46Z" end-time="2026-10-26 06:00:46Z" duration="0.2024138">
+  <test-suite type="TestSuite" id="1000" name="2026-09-27_navigation_validation" fullname="2026-09-27_navigation_validation" runstate="Runnable" testcasecount="46" result="Failed" site="Child" start-time="2026-10-26 06:00:46Z" end-time="2026-10-26 06:00:46Z" duration="0.202414" total="6" passed="5" failed="1" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <failure>
+      <message><![CDATA[One or more child tests had errors]]></message>
+    </failure>
+    <test-suite type="Assembly" id="1054" name="OA.Tests.EditMode.dll" fullname="D:/1 - Programming Master File/GitHub/OA/.utmp/unit-control-validation-20261026/Library/ScriptAssemblies/OA.Tests.EditMode.dll" runstate="Runnable" testcasecount="46" result="Failed" site="Child" start-time="2026-10-26 06:00:46Z" end-time="2026-10-26 06:00:46Z" duration="0.139031" total="6" passed="5" failed="1" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="60548" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <failure>
+        <message><![CDATA[One or more child tests had errors]]></message>
+      </failure>
+      <test-suite type="TestFixture" id="1039" name="UnitControlDemoTests" fullname="UnitControlDemoTests" classname="UnitControlDemoTests" runstate="Runnable" testcasecount="6" result="Failed" site="Child" start-time="2026-10-26 06:00:46Z" end-time="2026-10-26 06:00:46Z" duration="0.137505" total="6" passed="5" failed="1" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <failure>
+          <message><![CDATA[One or more child tests had errors]]></message>
+        </failure>
+        <test-case id="1042" name="AppendedAndInsertedOrdersStayWithSelectedUnits_AndSpeedToggleIsSelective" fullname="UnitControlDemoTests.AppendedAndInsertedOrdersStayWithSelectedUnits_AndSpeedToggleIsSelective" methodname="AppendedAndInsertedOrdersStayWithSelectedUnits_AndSpeedToggleIsSelective" classname="UnitControlDemoTests" runstate="Runnable" seed="926525737" result="Passed" start-time="2026-10-26 06:00:45Z" end-time="2026-10-26 06:00:45Z" duration="0.049408" asserts="0">
+          <properties />
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=768, Map=32x24, Draft=Shallow, SafetyRadius=0.00
+]]></output>
+        </test-case>
+        <test-case id="1041" name="GroupOrdersUseDistinctSlots_OnlySelectedShipsMove_AndDeselectKeepsOrders" fullname="UnitControlDemoTests.GroupOrdersUseDistinctSlots_OnlySelectedShipsMove_AndDeselectKeepsOrders" methodname="GroupOrdersUseDistinctSlots_OnlySelectedShipsMove_AndDeselectKeepsOrders" classname="UnitControlDemoTests" runstate="Runnable" seed="1000559884" result="Passed" start-time="2026-10-26 06:00:45Z" end-time="2026-10-26 06:00:45Z" duration="0.027062" asserts="0">
+          <properties />
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=768, Map=32x24, Draft=Shallow, SafetyRadius=0.00
+]]></output>
+        </test-case>
+        <test-case id="1044" name="NewSceneContainsTwoShipsAndSmallMap_WithDistinctCarrierProfile" fullname="UnitControlDemoTests.NewSceneContainsTwoShipsAndSmallMap_WithDistinctCarrierProfile" methodname="NewSceneContainsTwoShipsAndSmallMap_WithDistinctCarrierProfile" classname="UnitControlDemoTests" runstate="Runnable" seed="1952329292" result="Passed" start-time="2026-10-26 06:00:45Z" end-time="2026-10-26 06:00:45Z" duration="0.012111" asserts="0">
+          <properties />
+        </test-case>
+        <test-case id="1043" name="PlacementRejectsLandOffMapAndDraft_CancelsAndSpawnsUnselected" fullname="UnitControlDemoTests.PlacementRejectsLandOffMapAndDraft_CancelsAndSpawnsUnselected" methodname="PlacementRejectsLandOffMapAndDraft_CancelsAndSpawnsUnselected" classname="UnitControlDemoTests" runstate="Runnable" seed="1108524758" result="Passed" start-time="2026-10-26 06:00:45Z" end-time="2026-10-26 06:00:45Z" duration="0.002326" asserts="0">
+          <properties />
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=768, Map=32x24, Draft=Shallow, SafetyRadius=0.00
+]]></output>
+        </test-case>
+        <test-case id="1045" name="SceneRuntimeBootsUnselected_AndBothShipsAcceptSelectiveOrders" fullname="UnitControlDemoTests.SceneRuntimeBootsUnselected_AndBothShipsAcceptSelectiveOrders" methodname="SceneRuntimeBootsUnselected_AndBothShipsAcceptSelectiveOrders" classname="UnitControlDemoTests" runstate="Runnable" seed="419003385" result="Failed" start-time="2026-10-26 06:00:45Z" end-time="2026-10-26 06:00:46Z" duration="1.266588" asserts="0">
+          <properties>
+            <property name="_JOINTYPE" value="UnityCombinatorial" />
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <failure>
+            <message><![CDATA[  No accepted route for Enterprise.
+  Expected: True
+  But was:  False
+]]></message>
+            <stack-trace><![CDATA[at UnitControlDemoTests+<SceneRuntimeBootsUnselected_AndBothShipsAcceptSelectiveOrders>d__11.MoveNext () [0x0023d] in D:\1 - Programming Master File\GitHub\OA\.utmp\unit-control-validation-20261026\Assets\_Project\Tests\EditMode\UnitControlDemoTests.cs:245
+at UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in .\Library\PackageCache\com.unity.test-framework@0b7a23ab2e1d\UnityEngine.TestRunner\NUnitExtensions\Attributes\TestEnumerator.cs:44
+]]></stack-trace>
+          </failure>
+          <output><![CDATA[[PathfindingSandbox] Route rejected. The predicted ship stopped making useful progress toward the route. FailedLeg=1/1. FailureReason=CandidateStalled.  InputToFailureWallTime=53.37ms. PlanningCpuTime=36.12ms. PredictionCpuTime=29.63ms. AStarCpuTime=0.74ms. SmoothingCpuTime=0.99ms. HandoffRestarts=0. ReservedHandoffLead=0.250s. LocalRepairs=0. PlanFrames=8. AStarLegs=1. PhysicalCandidates=6. PhysicalSteps=8640. Replay={"FormatVersion":1,"GeneratedMap":false,"MapDefinitionName":"","MapSeed":0,"Width":64,"Height":48,"CellSize":32.22222137451172,"ObstacleChance":0.0,"RoughWaterChance":0.0,"SmoothingPasses":0,"SpawnCell":{"x":0,"y":0},"GoalCell":{"x":0,"y":0},"WorldOrigin":{"x":13.953417778015137,"y":16.11111068725586},"ColumnStep":{"x":0.0,"y":32.22222137451172},"RowStep":{"x":27.906835556030275,"y":0.0},"OddRowOffset":{"x":-0.0000019073486328125,"y":16.11111068725586},"OrderState":{"Position":{"x":348.83544921875,"y":306.111083984375},"VelocityWorld":{"x":0.0,"y":0.0},"HeadingDegrees":0.0,"SpeedKnots":0.0,"YawRateDegreesPerSecond":0.0,"Rudder":0.0},"ForecastState":{"Position":{"x":348.83544921875,"y":306.111083984375},"VelocityWorld":{"x":0.0,"y":0.0},"HeadingDegrees":0.0,"SpeedKnots":0.0,"YawRateDegreesPerSecond":0.0,"Rudder":0.0},"SpeedMode":0,"FixedDeltaTime":0.019999992102384568,"LookAheadDistance":22.03999900817871,"ArrivalDistance":1.652999997138977,"MovementProfileJson":"{\"metersPerWorldUnit\":31.034482955932618,\"simulationSecondsPerRealSecond\":60.0,\"lengthMeters\":342.0,\"displacementTons\":90000.0,\"draftClass\":1,\"depthMeters\":12,\"crewRequired\":1000,\"crewComplement\":5000,\"cruiseSpeedKnots\":26.0,\"flankSpeedKnots\":38.0,\"accelerationKnotsPerSecond\":0.03500000014901161,\"decelerationKnotsPerSecond\":0.05999999865889549,\"maxDecelerationKnotsPerSecond\":0.18000000715255738,\"agility\":0,\"useDebugHandlingOverrides\":false,\"debugRudderShiftTimeSeconds\":12.0,\"debugYawAccelerationDegreesPerSecondSquared\":0.4000000059604645,\"debugYawDampingPerSecond\":0.699999988079071,\"debugVelocityAlignmentTimeSeconds\":14.0,\"debugMaxDriftAngleDegrees\":8.0,\"debugTacticalDiameterAtCruiseLengths\":6.0,\"debugTacticalDiameterAtFlankLengths\":8.0,\"debugTurnSpeedLossFactor\":0.019999999552965165,\"debugTightTurnSpeedMultiplier\":0.44999998807907107,\"debugMinimumTacticalDiameterLengths\":0.4000000059604645,\"safetyRadius\":0.0,\"stoppingDistance\":0.10000000149011612,\"maxSpeed\":10.0,\"acceleration\":5.0,\"deceleration\":10.0,\"turnRateDegreesPerSecond\":180.0,\"turningRadius\":2.5}","RequestedWaypoints":[{"x":320.9286193847656,"y":451.111083984375}],"ResolvedWaypoints":[{"x":320.9286193847656,"y":451.111083984375}],"FailedLeg":0,"FailureReason":6,"FailurePosition":{"x":317.6623840332031,"y":443.4797668457031},"FailureTimeSeconds":28.899988174438478,"FailedGeometry":[{"x":348.83544921875,"y":306.111083984375},{"x":320.9286193847656,"y":451.111083984375}],"CornerStops":true,"TurnSpeedScale":1.0,"PredictionLimitSeconds":176.65219116210938,"StagnationSeconds":10.0}
+]]></output>
+        </test-case>
+        <test-case id="1040" name="SelectionStartsEmpty_ReplacesAddsBoxesAndClears_WithoutIssuingMovement" fullname="UnitControlDemoTests.SelectionStartsEmpty_ReplacesAddsBoxesAndClears_WithoutIssuingMovement" methodname="SelectionStartsEmpty_ReplacesAddsBoxesAndClears_WithoutIssuingMovement" classname="UnitControlDemoTests" runstate="Runnable" seed="1194156326" result="Passed" start-time="2026-10-26 06:00:46Z" end-time="2026-10-26 06:00:46Z" duration="0.007683" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[[HexMapPathService] Native hex path service ready. Cells=768, Map=32x24, Draft=Shallow, SafetyRadius=0.00
+Saving results to: D:\1 - Programming Master File\GitHub\OA\_codex_backups\2026-10-26_unit_control\carrier-steering-results.xml
+]]></output>
+        </test-case>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>
